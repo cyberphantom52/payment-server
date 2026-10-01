@@ -9,7 +9,7 @@ GPT-6.1 Sol subagents with low reasoning implemented the database migrations and
 schema checks. I then requested GPT-6.1 Sol subagents with high reasoning for the
 remaining implementation. The main agent reviewed, validated, and committed their
 work in the agreed sequence. Implementation stages are complete; final author
-review, the personal correction example below, and the recording remain.
+review and the recording remain.
 
 The first high-reasoning implementation stage added key administration,
 authentication, shared JSON errors, and readiness checks. Review corrected the
@@ -88,7 +88,15 @@ recommendation.
 
 ## Something AI Got Wrong and How I Corrected It
 
-**Author input required:** describe a specific correction you personally made,
-why it was necessary, and how you verified it. The agent-review corrections listed
-above are not presented as corrections you independently found. Review the three
-first-person decision accounts for accuracy before submission.
+The webhook retry recommendation in Decision 3 is a concrete example. Codex
+proposed the custom sequence 5, 30, 120, and 600 seconds. I pushed back and asked
+for a standard backoff policy, such as exponential or linear backoff. We changed
+the design to five total attempts with exponential waits of 5, 10, 20, and 40
+seconds after failures.
+
+This was a design recommendation I corrected, not a claim that the original
+sequence could not work. I wanted a standard policy whose intervals follow a
+clear rule. Verification came from integration tests inspecting the persisted
+retry schedule and enforcing the five-attempt limit, including recovery after
+an interrupted fifth dispatch. Codex ran those tests successfully as part of the
+final verification suite.
