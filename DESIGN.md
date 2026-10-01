@@ -160,18 +160,18 @@ remain retrievable, unlike API-key hashes.
 
 ## 6. What We Cut and Why
 
-1. Multiple app instances/parallel workers: single-instance deployment avoids job
-   ownership coordination while preserving concurrent HTTP correctness.
+1. Horizontal scaling: I wanted the service to run across multiple application
+   instances. I deferred this to keep the work within the assignment's 4–6 hour
+   budget and focus on payment correctness. Safe replicas would need durable work
+   claims with expiring leases; higher worker throughput would also need bounded
+   concurrency. For this version, one application instance runs separate sequential
+   payment and webhook workers while still supporting concurrent HTTP requests.
 2. Draft/edit/void flows: immutable open-to-paid invoices keep transitions small;
    refunds and partial payments are explicitly outside the assignment.
 3. Multiple destinations and replay APIs: a fixed endpoint and state reconciliation
    meet this version's needs.
 4. A queue broker and public administration API: PostgreSQL persists work and the
    operator CLI handles provisioning.
-
-**Author input required:** identify one deferred capability you personally wanted
-to build, and explain why you chose to cut it. The implementation agents cannot
-supply that personal reflection.
 
 ## 7. Production Readiness Gap
 

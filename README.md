@@ -256,9 +256,9 @@ stay stored, and businesses reconcile through invoice/attempt APIs. Production
 TLS, secret management, monitoring, backups, and rate limiting remain deployment
 work described in DESIGN.md.
 
-Before submitting, add the recording link, complete the personal reflection in
-DESIGN.md and the author correction example in AI_USAGE.md, and review the design
-in your own words. Those human contributions are intentionally not fabricated.
+Before submitting, add the recording link, complete the author correction example
+in AI_USAGE.md, and review the design in your own words. DESIGN.md now records
+horizontal scaling as the capability I wanted but deliberately deferred.
 The assignment requests a 4–6 hour time budget; report your actual focused time
 and any remaining work honestly. Git history records implementation stages and
 validation; nothing is pushed automatically.
