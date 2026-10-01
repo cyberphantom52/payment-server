@@ -1,7 +1,7 @@
 use crate::{
     entities::provider_operation::Operation,
     error::{ApiJson, ApiPath, AppError},
-    models::forms::provider_payment::PaymentRequest,
+    models::{enums::mock_card_token::MockCardToken, forms::provider_payment::PaymentRequest},
 };
 use axum::{Json, Router, extract::State, http::HeaderMap, routing::get};
 use serde_json::{Value, json};
@@ -63,13 +63,9 @@ async fn pay(
             "invoice_id and amount_cents must be positive integers",
         ));
     }
-    let (outcome, delay_ms) = match request.card_token.as_str() {
-        "tok_success" => ("succeeded", 100_i64),
-        "tok_insufficient_funds" => ("insufficient_funds", 100),
-        "tok_card_declined" => ("card_declined", 100),
-        "tok_timeout" => ("succeeded", 30000),
-        "tok_network_error" => ("succeeded", 0),
-        _ => {
+    let token = match request.card_token.parse::<MockCardToken>() {
+        Ok(token) => token,
+        Err(()) => {
             let exists: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM provider_operations WHERE attempt_id = $1)",
             )
@@ -82,6 +78,13 @@ async fn pay(
                 AppError::invalid_input("Unknown card_token")
             });
         }
+    };
+    let (outcome, delay_ms) = match token {
+        MockCardToken::Success => ("succeeded", 100_i64),
+        MockCardToken::InsufficientFunds => ("insufficient_funds", 100),
+        MockCardToken::CardDeclined => ("card_declined", 100),
+        MockCardToken::Timeout => ("succeeded", 30000),
+        MockCardToken::NetworkError => ("succeeded", 0),
     };
 
     // Autocommit makes the operation durable before any response delay. A second
@@ -110,7 +113,7 @@ async fn pay(
             "Idempotency-Key was already used with different payment input",
         ));
     }
-    if stored.mock_card_token == "tok_network_error" {
+    if token == MockCardToken::NetworkError {
         return Err(AppError::internal("Simulated provider network error"));
     }
     while stored.ready_in_ms > 0 {

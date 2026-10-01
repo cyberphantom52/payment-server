@@ -197,7 +197,9 @@ migrations for its own database.
 SQL row types and worker query projections live in `src/entities`. JSON request
 types live in `src/models/forms`; response envelopes and composite responses live
 in `src/models/data`. Entities are returned directly when their fields match the
-response. Shared protocol enums live in `src/models/enums`.
+response. Shared protocol enums live in `src/models/enums`. `MockCardToken`
+centralizes supported token parsing; request fields remain strings to preserve
+idempotency conflict handling before invalid-token rejection.
 
 | Variable | Native behavior / Compose setting |
 | --- | --- |

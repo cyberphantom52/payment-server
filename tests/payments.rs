@@ -203,19 +203,21 @@ async fn concurrent_admission_replay_and_scoping(pool: PgPool) {
         );
     }
     assert_eq!(calls.load(Ordering::SeqCst), requests_before);
-    assert_eq!(
-        pay(
-            &client,
-            &app.url,
-            &key,
-            invoice,
-            &winning_key,
-            "tok_card_declined"
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
+    for changed_token in ["tok_card_declined", "unknown"] {
+        assert_eq!(
+            pay(
+                &client,
+                &app.url,
+                &key,
+                invoice,
+                &winning_key,
+                changed_token
+            )
+            .await
+            .0,
+            StatusCode::CONFLICT
+        );
+    }
     assert_eq!(
         pay(
             &client,

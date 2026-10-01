@@ -9,7 +9,7 @@ use crate::{
             page::{Page, page},
             provider_payment::ProviderResult,
         },
-        enums::failure_code::FailureCode,
+        enums::{failure_code::FailureCode, mock_card_token::MockCardToken},
         forms::{list::ListQuery, payment::PaymentInput},
     },
 };
@@ -85,16 +85,10 @@ async fn pay(
         return stored.response(invoice_id, &input.card_token);
     }
     drop(connection);
-    if !matches!(
-        input.card_token.as_str(),
-        "tok_success"
-            | "tok_insufficient_funds"
-            | "tok_card_declined"
-            | "tok_timeout"
-            | "tok_network_error"
-    ) {
-        return Err(AppError::invalid_input("Unknown card_token"));
-    }
+    input
+        .card_token
+        .parse::<MockCardToken>()
+        .map_err(|()| AppError::invalid_input("Unknown card_token"))?;
     let mut transaction = state.db.begin().await?;
     let invoice_state: String = sqlx::query_scalar(
         "SELECT state FROM invoices WHERE business_id = $1 AND id = $2 FOR UPDATE",
