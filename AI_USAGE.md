@@ -50,6 +50,10 @@ check rather than only setting the delivery counter in SQL. Tests verify the
 fifth dispatch is reserved before HTTP and restart recovery cannot send a sixth.
 The signature test also checks a value independently computed with Python's HMAC.
 
+A final Clippy pass requested two style-only changes: collapsing the invoice state-filter guard and using a boolean
+assertion directly. The implementation agent applied these without changing the
+API or persistence behavior; formatting and strict Clippy checks then passed.
+
 ## Three Decisions I Made Independently or Against AI Suggestions
 
 ### Decision 1

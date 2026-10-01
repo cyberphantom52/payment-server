@@ -192,15 +192,14 @@ async fn resources_are_scoped_validated_paginated_and_atomic(pool: PgPool) {
     .unwrap();
     assert_eq!(captured, Some(endpoint_id));
     assert!(scheduled);
-    assert_eq!(
+    assert!(
         sqlx::query_scalar::<_, bool>(
             "SELECT next_attempt_at IS NULL FROM webhook_events WHERE invoice_id = $1"
         )
         .bind(invoice_id)
         .fetch_one(&pool)
         .await
-        .unwrap(),
-        true
+        .unwrap()
     );
     sqlx::query("UPDATE invoices SET state = 'paid', paid_at = now() WHERE id = $1")
         .bind(second_invoice_id)

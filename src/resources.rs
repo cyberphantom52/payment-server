@@ -248,10 +248,10 @@ async fn list_invoices(
     ApiQuery(query): ApiQuery<ListQuery>,
 ) -> Result<Json<Page<InvoiceSummary>>, AppError> {
     let (limit, after_id) = query.pagination()?;
-    if let Some(state) = &query.state {
-        if !matches!(state.as_str(), "open" | "paid") {
-            return Err(AppError::invalid_input("state must be open or paid"));
-        }
+    if let Some(state) = &query.state
+        && !matches!(state.as_str(), "open" | "paid")
+    {
+        return Err(AppError::invalid_input("state must be open or paid"));
     }
     let invoices = sqlx::query_as("SELECT id, business_id, customer_id, due_date, total_cents, state, created_at, paid_at
         FROM invoices WHERE business_id = $1 AND id > $2 AND ($3::text IS NULL OR state = $3) ORDER BY id LIMIT $4")
