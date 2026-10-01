@@ -93,6 +93,42 @@ while the worker checks provider state again. The invoice remains open, with new
 attempts blocked until resolution. Completion is available through attempt reads
 and webhooks; repeating acceptance does not trigger another provider request.
 
+## Payment data flow
+
+Successful payment with a new idempotency key and a registered webhook endpoint:
+
+```mermaid
+%%{init: {"sequence": {"mirrorActors": false, "actorMargin": 30, "width": 120}}}%%
+sequenceDiagram
+    actor C as Client
+    participant A as API
+    participant D as App database
+    participant W as Payment worker
+    participant P as Mock PSP
+
+    C->>A: POST /invoices/{id}/pay<br/>Idempotency-Key
+    A->>D: Lock invoice<br/>Persist attempt and acceptance
+    D-->>A: Commit
+    par Return acceptance
+        A-->>C: 202 + attempt ID
+    and Process durable work
+        W->>D: Read due attempt
+        D-->>W: Attempt ID, amount, token
+        W->>P: GET /payments/{attempt_id}
+        P-->>W: 404 - no operation yet
+        W->>P: POST /payments<br/>Same attempt ID
+        Note over P: Persist operation<br/>before response
+        P-->>W: Confirmed success + psp_ref
+        W->>D: Lock invoice then attempt<br/>Set success + paid + invoice.paid
+        D-->>W: Commit all three changes
+    end
+```
+
+Invoice creation also inserts its `invoice.created` event in the same transaction
+as the invoice and line items. Committed events enter the
+[webhook delivery flow](#webhook-delivery). Provider calls occur outside database
+transactions.
+
 ## Webhooks
 
 `POST /webhook-endpoints` accepts `{"url":"https://approved.example/webhook"}` and
@@ -139,6 +175,30 @@ is no event-history or manual-redelivery endpoint. The internal provider route
 `POST /demo/webhooks` verifies signatures and durably deduplicates event IDs,
 returning `204` for new or identical duplicate receipts and `409` for a signed,
 changed body reusing an ID. Invalid/stale signatures return `400`.
+
+### Webhook delivery
+
+The worker polls committed events. Dispatch happens after the reservation
+transaction commits; the receiver's acknowledgment determines the next update.
+
+```mermaid
+%%{init: {"sequence": {"mirrorActors": false}}}%%
+sequenceDiagram
+    participant D as App database
+    participant H as Webhook worker
+    participant R as Receiver
+
+    H->>D: Select due event<br/>Reserve dispatch and recovery time
+    D-->>H: Commit<br/>Exact payload and destination
+    H->>R: Signed HTTP POST<br/>Fresh timestamp, same event ID and body
+    Note over R: Verify HMAC and timestamp<br/>Durably deduplicate event ID
+    alt Acknowledged
+        R-->>H: 2xx
+        H->>D: Mark delivered
+    else Failure or timeout
+        H->>D: Schedule retry or mark exhausted
+    end
+```
 
 ## Mock PSP
 

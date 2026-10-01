@@ -4,6 +4,47 @@ A Rust service using Axum, SQLx, and PostgreSQL. It creates immutable USD invoic
 accepts payments asynchronously, recovers uncertain outcomes through a separate
 mock payment provider, and delivers signed webhooks with durable retry budgets.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    client["Merchant client"]
+
+    subgraph app["payment-server :3000"]
+        api["Axum API"]
+        payments["Payment worker"]
+        webhooks["Webhook worker"]
+    end
+
+    subgraph provider["payment-provider :3001"]
+        psp["Mock PSP"]
+        receiver["Demo webhook receiver"]
+    end
+
+    subgraph postgres["PostgreSQL - one instance"]
+        app_db[("payment_app")]
+        provider_db[("payment_provider")]
+    end
+
+    client -->|"HTTP + API key"| api
+    api -->|"Invoices, attempts, events"| app_db
+    payments -->|"Poll and settle attempts"| app_db
+    webhooks -->|"Poll and update deliveries"| app_db
+    payments -->|"HTTP lookup / submit"| psp
+    psp -->|"Persist operations"| provider_db
+    webhooks -->|"Signed HTTP POST"| receiver
+    receiver -->|"Persist receipts"| provider_db
+```
+
+This shows the three-service Compose deployment. Both workers poll durable work
+in the application database. The demo receiver shares the provider process;
+other businesses can register an allowlisted external endpoint.
+
+[Table relationships](DESIGN.md#1-data-model) ·
+[Payment data flow](API.md#payment-data-flow) ·
+[Webhook delivery](API.md#webhook-delivery) ·
+[Invoice states](DESIGN.md#2-invoice-state-machine)
+
 ## Running the Service
 
 With Docker and its Compose plugin installed:

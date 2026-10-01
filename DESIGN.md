@@ -19,6 +19,58 @@ provider, accessed over HTTP, models delayed responses and uncertain outcomes.
 | Provider provider_operations | Attempt identity, original input, stable UUID, outcome and readiness. |
 | Provider demo_webhook_receipts | Event ID primary key, exact payload and receipt time for durable demo deduplication. |
 
+Core billing relationships and selected columns:
+
+```mermaid
+%%{init: {"er": {"layoutDirection": "LR"}}}%%
+erDiagram
+    businesses ||--o{ api_keys : authenticates
+    businesses ||--o{ customers : owns
+    customers ||--o{ invoices : receives
+    invoices ||--|{ invoice_line_items : contains
+    invoices ||--o{ payment_attempts : records
+
+    businesses {
+        bigint id PK
+        text name
+    }
+    api_keys {
+        bigint id PK
+        bigint business_id FK
+        text key_hash UK
+        timestamptz revoked_at
+    }
+    customers {
+        bigint id PK
+        bigint business_id FK
+        text name
+        text email
+    }
+    invoices {
+        bigint id PK
+        bigint business_id FK
+        bigint customer_id FK
+        bigint total_cents
+        date due_date
+        text state
+    }
+    invoice_line_items {
+        bigint invoice_id PK,FK
+        int position PK
+        text description
+        bigint quantity
+        bigint unit_amount_cents
+    }
+    payment_attempts {
+        bigint id PK
+        bigint business_id FK
+        bigint invoice_id FK
+        text idempotency_key
+        text state
+        timestamptz next_check_at
+    }
+```
+
 Application primary keys are `bigint` identities. Line items use
 `(invoice_id, position)`. Provider operations use the application attempt ID as
 their primary key and a UUID provider reference. Queries derive business scope
