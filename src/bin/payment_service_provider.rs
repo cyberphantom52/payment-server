@@ -1,4 +1,4 @@
-use payment_server::provider;
+use payment_server::{provider, webhooks};
 use sqlx::postgres::PgPoolOptions;
 use std::{net::SocketAddr, time::Duration};
 
@@ -15,6 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "127.0.0.1:3001".into())
         .parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
-    axum::serve(listener, provider::router(db)).await?;
+    let secret = std::env::var("DEMO_WEBHOOK_SECRET").ok();
+    let demo = webhooks::demo_router(db.clone(), secret.as_deref())
+        .map_err(|error| std::io::Error::other(error.message))?;
+    axum::serve(listener, provider::router(db).merge(demo)).await?;
     Ok(())
 }

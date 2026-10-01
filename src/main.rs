@@ -1,4 +1,6 @@
-use payment_server::{AppState, auth, error::AppError, payments::Worker, router};
+use payment_server::{
+    AppState, auth, error::AppError, payments::Worker, router_with_webhooks, webhooks,
+};
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{net::SocketAddr, time::Duration};
@@ -33,6 +35,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
+    let allowed_urls = std::env::var("WEBHOOK_ALLOWED_URLS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let webhook_config =
+        webhooks::WebhookConfig::new(allowed_urls, std::env::var("DEMO_WEBHOOK_URL").ok())
+            .map_err(|error| std::io::Error::other(error.message))?;
+    let webhook_client =
+        webhooks::delivery_client().map_err(|error| std::io::Error::other(error.message))?;
+    let webhook_db = db.clone();
     let address: SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:3000".into())
         .parse()?;
@@ -41,10 +56,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker =
         Worker::new(db.clone(), &psp_url).map_err(|error| std::io::Error::other(error.message))?;
     tokio::try_join!(
-        async { axum::serve(listener, router(AppState { db })).await },
+        async {
+            axum::serve(
+                listener,
+                router_with_webhooks(AppState { db }, webhook_config),
+            )
+            .await
+        },
         async {
             worker.run().await;
             Err::<(), _>(std::io::Error::other("Payment worker unexpectedly stopped"))
+        },
+        async {
+            webhooks::run(webhook_db, webhook_client)
+                .await
+                .map_err(|error| std::io::Error::other(error.message))?;
+            Err::<(), _>(std::io::Error::other("Webhook worker unexpectedly stopped"))
         }
     )?;
     Ok(())

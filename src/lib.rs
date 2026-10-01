@@ -4,6 +4,7 @@ pub mod events;
 pub mod payments;
 pub mod provider;
 pub mod resources;
+pub mod webhooks;
 
 use axum::{Json, Router, extract::State, middleware, routing::get};
 use error::AppError;
@@ -16,13 +17,17 @@ pub struct AppState {
 }
 
 pub fn router(state: AppState) -> Router {
-    let protected =
-        resources::router()
-            .merge(payments::router())
-            .route_layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth::require_api_key,
-            ));
+    router_with_webhooks(state, webhooks::WebhookConfig::default())
+}
+
+pub fn router_with_webhooks(state: AppState, config: webhooks::WebhookConfig) -> Router {
+    let protected = resources::router()
+        .merge(payments::router())
+        .merge(webhooks::routes(config))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_api_key,
+        ));
     Router::new()
         .route("/health", get(health))
         .merge(protected)

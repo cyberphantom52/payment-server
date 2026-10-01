@@ -6,7 +6,7 @@ A Rust invoice and payment service using Axum and PostgreSQL, with a separate
 mock payment provider. The database model, API-key administration/authentication,
 and health endpoint are implemented. Customer/invoice APIs and transactional
 invoice-created events, the durable mock provider, and payment admission/recovery
-are implemented. Webhook delivery and Compose setup are the next stages.
+and signed webhook delivery are implemented. Compose setup is the next stage.
 
 ## Run Instructions
 
@@ -141,6 +141,24 @@ DATABASE_URL=postgresql://localhost/postgres cargo test --test provider
 
 Five payment integration tests passed, including the real 30-second scenario.
 
+### Webhook Delivery
+
+Nine focused tests passed: HMAC verification against an independent vector,
+timestamp/signature rejection, durable duplicate receipt handling, endpoint URL
+policy, exponential retry scheduling, payload stability, remaining-lifetime
+timeouts, disabled redirects, and cancellation of a reserved fifth dispatch.
+Recovery exhausts that event without sending a sixth request.
+
+```sh
+DATABASE_URL=postgresql://localhost/postgres cargo test --test webhooks
+```
+
+Set `WEBHOOK_ALLOWED_URLS` to comma-separated exact destination URLs. HTTPS is
+required except for an explicitly configured `DEMO_WEBHOOK_URL`, which must also
+be allowlisted. Default: no destinations allowed. The provider's demo receiver
+is `/demo/webhooks`; set its `DEMO_WEBHOOK_SECRET` to the endpoint's 64-character
+hex secret. Verified new receipts are logged and stored in the provider database.
+
 ### Concurrent Payments
 
 `tests/payments.rs` sends 20 simultaneous requests with distinct keys for one
@@ -178,7 +196,7 @@ requires bounded worker concurrency. Webhook retries use exponential waits of
 
 <!-- Document unfinished work if the 4 to 6 hour budget was exceeded. If using a language other than Rust, briefly justify it here. -->
 
-Remaining work includes webhook signing/delivery, Compose bootstrapping, the full
+Remaining work includes Compose bootstrapping, the full
 acceptance run, complete curl examples, and the demo recording. Documentation
 distinguishes agreed plans from verified implementation as work progresses.
 

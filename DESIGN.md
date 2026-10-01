@@ -2,8 +2,8 @@
 
 Implementation checkpoint: schemas, API-key administration/authentication, health,
 customer/invoice APIs, transactional created events, the durable mock provider,
-payment admission/recovery, and their tests are implemented. The remaining
-behavior below is the agreed contract, to be verified as each feature lands.
+payment admission/recovery, signed webhook delivery, and their tests are
+implemented. Compose bootstrap and full deployment validation remain.
 
 ## 1. Data Model
 
@@ -18,6 +18,7 @@ behavior below is the agreed contract, to be verified as each feature lands.
 | webhook_endpoints | One fixed URL and retrievable signing secret per business. |
 | webhook_events | Exact event payload, captured endpoint, delivery count/schedule/result. |
 | Provider provider_operations | Attempt identity, original input, stable UUID, outcome and readiness. |
+| Provider demo_webhook_receipts | Event ID primary key, exact payload and receipt time for durable demo deduplication. |
 
 Application primary keys are bigint identities. Line items use (invoice_id,
 position). Provider operations use the application attempt ID as their primary
@@ -126,8 +127,12 @@ Five total attempts use exponential waits of 5, 10, 20, and 40 seconds after the
 initial attempt. Each request times out after five seconds, bounded by a 15-minute
 lifetime from creation including queueing/downtime. Persist dispatch count and
 recovery schedule before HTTP. Crashes cannot reset the budget or allow a sixth
-dispatch. Any 2xx acknowledges; other outcomes retry. Disable redirects. URLs must
-be operator-allowlisted and HTTPS except for the explicitly configured internal demo.
+dispatch. Reservation records a fallback time covering the HTTP timeout and next
+backoff; a failed request then schedules from its completion. A fifth reservation
+recovers to exhaustion if its acknowledgment was not persisted. Any 2xx
+acknowledges; other outcomes retry. Disable redirects and automatic transport
+retries. URLs must be operator-allowlisted and HTTPS except for the explicitly
+configured internal demo.
 
 Retain exhausted events. Exhaustion means acknowledgment was not confirmed; a
 receiver may have accepted a request whose response was lost. Businesses reconcile

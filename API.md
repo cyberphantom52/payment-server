@@ -1,8 +1,8 @@
 # API Documentation
 
-Implementation checkpoint: authentication, customers, invoices, and the mock
-provider and application payment processing are implemented. Webhook delivery
-is being verified before its feature commit.
+Implementation checkpoint: all endpoints below are implemented, including
+signed webhook delivery and the internal demo receiver. Compose/demo bootstrap
+validation is the next stage.
 
 ## Conventions and authentication
 

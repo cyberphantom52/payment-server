@@ -44,6 +44,12 @@ transaction boundaries, strict provider response decoding, and rejected redirect
 as settlement evidence. The integration suite includes 20 concurrent clients,
 a real 30-second timeout, and rollback of settlement when event persistence fails.
 
+The webhook stage added HMAC signing, exact-byte delivery, durable retry budgets,
+and a separate demo receipt table. Review required a real in-flight cancellation
+check rather than only setting the delivery counter in SQL. Tests verify the
+fifth dispatch is reserved before HTTP and restart recovery cannot send a sixth.
+The signature test also checks a value independently computed with Python's HMAC.
+
 ## Three Decisions I Made Independently or Against AI Suggestions
 
 ### Decision 1

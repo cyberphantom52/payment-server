@@ -147,7 +147,7 @@ fn hash_key(key: &str) -> String {
     hex(&Sha256::digest(key.as_bytes()))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(encoded, "{byte:02x}").expect("writing to String cannot fail");
