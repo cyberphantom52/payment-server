@@ -105,6 +105,8 @@ API and worker capacity can scale separately.
 
 ## 2. Invoice State Machine
 
+### Invoice
+
 ```mermaid
 stateDiagram-v2
     [*] --> open: Create invoice
@@ -112,11 +114,23 @@ stateDiagram-v2
     paid --> [*]
 ```
 
-Invoices start open; paid is terminal. There are no reversible transitions.
-Attempts move pending to succeeded or failed. Confirmed declines leave invoices
-open and permit new attempts. Timeouts stay pending and block fresh attempts.
-Guarded transactions enforce transitions, backed by row constraints. Invalid new
-payment requests return explicit 409 conflicts; no arbitrary state-update API exists.
+### Payment attempt
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: Payment accepted
+    pending --> pending: Timeout or unknown outcome
+    pending --> succeeded: Provider confirms success
+    pending --> failed: Provider confirms decline
+    succeeded --> [*]
+    failed --> [*]
+```
+
+Paid invoices and succeeded/failed attempts are terminal; transitions are irreversible.
+A decline leaves the invoice open and permits a new attempt. Unknown outcomes stay
+pending and block new attempts. Guarded transactions and database constraints
+enforce transitions. Invalid new payment requests return `409`; no arbitrary
+state-update API exists.
 
 ## 3. Payment Correctness & Failure Modes
 
