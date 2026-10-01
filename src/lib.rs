@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod error;
 pub mod events;
+pub mod payments;
 pub mod provider;
 pub mod resources;
 
@@ -15,10 +16,13 @@ pub struct AppState {
 }
 
 pub fn router(state: AppState) -> Router {
-    let protected = resources::router().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::require_api_key,
-    ));
+    let protected =
+        resources::router()
+            .merge(payments::router())
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_api_key,
+            ));
     Router::new()
         .route("/health", get(health))
         .merge(protected)

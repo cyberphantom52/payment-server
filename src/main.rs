@@ -1,4 +1,4 @@
-use payment_server::{AppState, auth, error::AppError, router};
+use payment_server::{AppState, auth, error::AppError, payments::Worker, router};
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{net::SocketAddr, time::Duration};
@@ -37,7 +37,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "127.0.0.1:3000".into())
         .parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
-    axum::serve(listener, router(AppState { db })).await?;
+    let psp_url = std::env::var("PSP_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".into());
+    let worker =
+        Worker::new(db.clone(), &psp_url).map_err(|error| std::io::Error::other(error.message))?;
+    tokio::try_join!(
+        async { axum::serve(listener, router(AppState { db })).await },
+        async {
+            worker.run().await;
+            Err::<(), _>(std::io::Error::other("Payment worker unexpectedly stopped"))
+        }
+    )?;
     Ok(())
 }
 

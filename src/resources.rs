@@ -62,14 +62,14 @@ async fn get_customer(
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-struct ListQuery {
-    limit: Option<i64>,
-    after_id: Option<i64>,
-    state: Option<String>,
+pub(crate) struct ListQuery {
+    pub(crate) limit: Option<i64>,
+    pub(crate) after_id: Option<i64>,
+    pub(crate) state: Option<String>,
 }
 
 impl ListQuery {
-    fn pagination(&self) -> Result<(i64, i64), AppError> {
+    pub(crate) fn pagination(&self) -> Result<(i64, i64), AppError> {
         let limit = self.limit.unwrap_or(20);
         let after_id = self.after_id.unwrap_or(0);
         if !(1..=100).contains(&limit) || after_id < 0 {
@@ -82,12 +82,12 @@ impl ListQuery {
 }
 
 #[derive(Serialize)]
-struct Page<T> {
+pub(crate) struct Page<T> {
     data: Vec<T>,
     next_after_id: Option<i64>,
 }
 
-fn page<T>(mut data: Vec<T>, limit: i64, id: impl Fn(&T) -> i64) -> Page<T> {
+pub(crate) fn page<T>(mut data: Vec<T>, limit: i64, id: impl Fn(&T) -> i64) -> Page<T> {
     let next_after_id = if data.len() > limit as usize {
         data.pop();
         data.last().map(id)

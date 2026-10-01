@@ -29,13 +29,20 @@ secrets from event rows: the agreed fixed endpoint can be referenced directly.
 Validation applied both migration sets to isolated PostgreSQL test databases and
 passed all three schema tests, covering money/state constraints, tenant
 boundaries, payment uniqueness, webhook payload preservation, and provider data.
-These tests do not yet verify the unimplemented HTTP payment workflow.
+The schema tests validate database constraints; separate HTTP tests exercise
+the application workflow.
 
 The provider stage added persisted operation identity and readiness before HTTP
 delays. Review corrected the decline response field to the assignment’s `code`
 contract and rejected duplicate idempotency headers. Four provider tests passed,
 including concurrent submission, mismatches, cancellation/restart, and stored
 success behind a simulated HTTP 500.
+
+The payment stage added asynchronous acceptance, exact response replay, scoped
+attempt reads, and provider recovery. Main-agent review checked lock ordering,
+transaction boundaries, strict provider response decoding, and rejected redirects
+as settlement evidence. The integration suite includes 20 concurrent clients,
+a real 30-second timeout, and rollback of settlement when event persistence fails.
 
 ## Three Decisions I Made Independently or Against AI Suggestions
 

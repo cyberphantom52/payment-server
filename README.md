@@ -5,8 +5,8 @@
 A Rust invoice and payment service using Axum and PostgreSQL, with a separate
 mock payment provider. The database model, API-key administration/authentication,
 and health endpoint are implemented. Customer/invoice APIs and transactional
-invoice-created events and the durable mock provider are implemented. Payment processing, webhook delivery,
-and Compose setup are being built in the sequence below.
+invoice-created events, the durable mock provider, and payment admission/recovery
+are implemented. Webhook delivery and Compose setup are the next stages.
 
 ## Run Instructions
 
@@ -80,6 +80,16 @@ paginated invoice lists return summaries without line items.
 
 ### Attempt a Successful Payment
 
+```sh
+curl -i http://localhost:3000/invoices/1/pay \
+  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: example-success' -d '{"card_token":"tok_success"}'
+```
+
+Returns `202` with `payment_attempt_id`, `invoice_id`, and `status: "pending"`.
+Use the returned `Location` to read the eventual outcome. `PSP_URL` defaults to
+`http://127.0.0.1:3001`; run the provider against its own database first.
+
 ### Attempt a Failed Payment
 
 <!-- Use tok_card_declined; show Idempotency-Key on payment requests. -->
@@ -97,9 +107,9 @@ DATABASE_URL=postgresql://localhost/postgres cargo test --test schema
 
 Set the URL to your test PostgreSQL instance and role. These checks cover cents
 and state constraints, tenant foreign keys, payment uniqueness, webhook
-destination constraints, and provider records. The required HTTP concurrency,
-response replay, and timeout/recovery tests below remain pending until the
-corresponding behavior is implemented.
+destination constraints, and provider records. The payment integration suite
+exercises HTTP concurrency, exact acceptance replay, and recovery through the
+separately migrated provider database.
 
 Verified: all three schema tests, two authentication tests, and the admin CLI
 parser test passed against disposable PostgreSQL where needed. Authentication
@@ -122,24 +132,37 @@ DATABASE_URL=postgresql://localhost/postgres cargo test --test resources
 Four provider HTTP tests passed: concurrent duplicates share one durable operation,
 changed inputs conflict, all mock tokens behave as specified, and cancelled
 requests recover through lookup after a server restart. The focused restart test
-advances the stored timeout deadline; a real 30-second end-to-end timeout check
-will be added with the application worker.
+advances the stored timeout deadline; the payment suite separately runs the real
+30-second provider delay.
 
 ```sh
 DATABASE_URL=postgresql://localhost/postgres cargo test --test provider
 ```
 
+Five payment integration tests passed, including the real 30-second scenario.
+
 ### Concurrent Payments
 
-<!-- N concurrent requests: at most one succeeds, no double charges, consistent final state. -->
+`tests/payments.rs` sends 20 simultaneous requests with distinct keys for one
+invoice: one is admitted, one provider operation exists, and the invoice becomes
+paid. Twenty same-key requests share an identical acceptance and attempt.
 
 ### Idempotency
 
-<!-- Same request and key: same response, no second PSP call. -->
+The suite compares status, raw response bytes, and Location after settlement,
+using a provider request counter to verify replays make no additional HTTP call.
+Changed input conflicts; a confirmed decline permits a fresh key.
 
 ### PSP Failure
 
-<!-- tok_timeout or tok_network_error: invoice does not remain in a bad state. -->
+The real 30-second timeout scenario verifies prompt acceptance, a two-second
+worker HTTP timeout, pending-state exclusion, and eventual success. Other cases
+cover simulated network loss, provider restart with a committed success, malformed
+results, and transactional settlement rollback when event persistence fails.
+
+```sh
+DATABASE_URL=postgresql://localhost/postgres cargo test --test payments
+```
 
 ## Demo Video
 
@@ -155,11 +178,9 @@ requires bounded worker concurrency. Webhook retries use exponential waits of
 
 <!-- Document unfinished work if the 4 to 6 hour budget was exceeded. If using a language other than Rust, briefly justify it here. -->
 
-The database constraints do not yet implement the complete payment workflow.
-Remaining work includes application payment admission and recovery, durable
-workers, webhook signing/delivery, Compose bootstrapping, full acceptance tests,
-complete curl examples, and the demo recording. Documentation distinguishes agreed plans
-from verified implementation as work progresses.
+Remaining work includes webhook signing/delivery, Compose bootstrapping, the full
+acceptance run, complete curl examples, and the demo recording. Documentation
+distinguishes agreed plans from verified implementation as work progresses.
 
 ## Documentation
 
