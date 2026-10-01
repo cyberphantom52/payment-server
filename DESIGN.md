@@ -87,9 +87,8 @@ Unique indexes enforce API-key hashes, business/idempotency-key pairs, and at mo
 one pending or successful attempt per invoice; failed history remains. Business
 indexes support customer/invoice lists and state filtering; partial due-time
 indexes support workers. Payload TEXT preserves exact webhook and replay bytes.
-Endpoint business uniqueness guarantees one destination; provider references and
-receipt IDs are also unique. The line-item primary key supports ordered reads.
-One endpoint lets an event hold delivery metadata without another deliveries table.
+One fixed endpoint lets each event hold its delivery metadata without a separate
+deliveries table. Provider references and receipt IDs are unique.
 
 The provider owns separate database credentials and migrations on the same
 PostgreSQL instance. Each role is denied `CONNECT` to the other database. The
@@ -97,10 +96,12 @@ application accesses provider operations only over HTTP. This preserves the
 service boundary while keeping deployment to three containers; both services
 share the database instance's availability.
 
-At 100x load, I would identify bottlenecks from queue age, query plans, and
-database load. Bounded worker concurrency and atomic claims with
-expiring leases would enable multiple instances. API and worker capacity could
-then scale separately, with retention and indexes guided by access patterns.
+At 100x, I would assess queue age, query plans, and database load.
+Bounded worker concurrency and atomic claims with
+expiring leases would enable multiple instances. If idle queries or discovery
+latency matter, add `LISTEN`/`NOTIFY` wakeups while retaining
+startup/reconnect scans and retry timers. Notifications do not claim work.
+API and worker capacity can scale separately.
 
 ## 2. Invoice State Machine
 
@@ -135,6 +136,13 @@ Row locks express the resource being protected. An application mutex would not
 coordinate processes; serializable isolation requires broader retry handling.
 The deployment has one application instance and two independent sequential
 workers, allowing concurrent HTTP requests without distributed work ownership.
+
+Idle payment/webhook workers poll every 500 ms/one second. Due-work queries
+discover new jobs, scheduled retries, and unfinished work after restarts. This
+deliberately avoids listener connection/reconnect handling, accepting empty
+queries and discovery delay. PostgreSQL [LISTEN/NOTIFY](https://www.postgresql.org/docs/18/sql-notify.html)
+could reduce these costs; persisted rows remain authoritative because
+disconnected workers can miss notifications.
 
 ### PSP timeout
 
@@ -219,10 +227,9 @@ remain retrievable, unlike API-key hashes.
 
 1. Horizontal scaling: I wanted the service to run across multiple application
    instances. I deferred this to keep the work within the assignment's 4–6 hour
-   budget and focus on payment correctness. Safe replicas would need durable work
-   claims with expiring leases; higher worker throughput would also need bounded
-   concurrency. For this version, one application instance runs separate sequential
-   payment and webhook workers while still supporting concurrent HTTP requests.
+   budget and focus on payment correctness. Safe replicas need durable claims
+   with expiring leases and bounded worker concurrency. The current instance
+   supports concurrent HTTP requests with sequential workers.
 2. Draft/edit/void flows: immutable open-to-paid invoices keep transitions small;
    refunds and partial payments are explicitly outside the assignment.
 3. Multiple destinations and replay APIs: a fixed endpoint and state reconciliation

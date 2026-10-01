@@ -257,6 +257,10 @@ and [webhook signing and delivery](src/webhooks.rs), with integration coverage i
 Run one application instance: payment and webhook workers are separately
 sequential, while HTTP requests remain concurrent. Higher throughput needs
 bounded worker concurrency; safe replicas need durable work claims/leases.
+Polling deliberately keeps work discovery, scheduled retries, and restart
+recovery simple. It incurs idle queries and discovery delay; `LISTEN`/`NOTIFY`
+is a possible improvement if those costs matter, with recovery scans and retry
+timers retained. The rationale is in [DESIGN.md](DESIGN.md#simultaneous-payments-and-concurrency).
 The provider and application share one PostgreSQL instance, so availability is
 shared despite separate ownership. Payment recovery depends on eventual provider
 availability. Keys, attempts, events, and demo receipts have no retention policy.
