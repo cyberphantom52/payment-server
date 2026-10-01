@@ -4,6 +4,10 @@ A Rust service using Axum, SQLx, and PostgreSQL. It creates immutable USD invoic
 accepts payments asynchronously, recovers uncertain outcomes through a separate
 mock payment provider, and delivers signed webhooks with durable retry budgets.
 
+## Demo Video
+
+[Watch the demo on Loom](https://www.loom.com/share/10fdef642dec4c5eb29c5d65dfbdb233).
+
 ## Architecture
 
 ```mermaid
