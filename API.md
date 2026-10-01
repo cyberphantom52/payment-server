@@ -2,8 +2,8 @@
 
 Status: schemas, API-key authentication/administration, JSON error handling, and
 application health, customer/invoice endpoints, and transactional created events
-are implemented. Payment, webhook, and provider endpoints below remain the agreed
-contract until their feature commits.
+and the mock provider endpoints are implemented. Application payment and webhook
+endpoints below remain the agreed contract until their feature commits.
 
 ## Conventions and authentication
 

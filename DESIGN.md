@@ -1,7 +1,7 @@
 # Design
 
 Implementation checkpoint: schemas, API-key administration/authentication, health,
-customer/invoice APIs, transactional created events, and their tests are
+customer/invoice APIs, transactional created events, the durable mock provider, and their tests are
 implemented. The remaining behavior below is the agreed contract, to be verified
 as each feature lands.
 

@@ -5,7 +5,7 @@
 A Rust invoice and payment service using Axum and PostgreSQL, with a separate
 mock payment provider. The database model, API-key administration/authentication,
 and health endpoint are implemented. Customer/invoice APIs and transactional
-invoice-created events are implemented. Payment processing, webhook delivery,
+invoice-created events and the durable mock provider are implemented. Payment processing, webhook delivery,
 and Compose setup are being built in the sequence below.
 
 ## Run Instructions
@@ -17,7 +17,8 @@ tests and documentation updates. No commits are pushed automatically.
 
 The target command is `docker compose up`; Compose files are not implemented at
 this checkpoint. Validation currently uses disposable PostgreSQL. Podman is
-installed on the development host, but its Compose provider still needs setup.
+available on the development host with podman-compose 1.6.0; container validation
+will use Podman.
 
 For the implemented native development foundation, use a fresh application
 database and provide its URL (the database must already exist):
@@ -47,7 +48,9 @@ The current application reads `DATABASE_URL` and applies `migrations/` through
 SQLx on startup. The initial migration creates the assignment tables. Use a fresh
 assignment database if an older database already applied the removed learning
 migration. Provider migrations live in `provider_migrations/` and require a
-separate database; provider startup integration is still pending.
+separate database. Run it with `DATABASE_URL=postgresql://localhost/payment_provider
+cargo run --bin payment-provider` (on one line). It applies provider migrations
+and listens on `127.0.0.1:3001` by default.
 
 ## Curl Examples
 
@@ -116,6 +119,16 @@ capture, and rollback of invoice/items/event together after a forced failure:
 DATABASE_URL=postgresql://localhost/postgres cargo test --test resources
 ```
 
+Four provider HTTP tests passed: concurrent duplicates share one durable operation,
+changed inputs conflict, all mock tokens behave as specified, and cancelled
+requests recover through lookup after a server restart. The focused restart test
+advances the stored timeout deadline; a real 30-second end-to-end timeout check
+will be added with the application worker.
+
+```sh
+DATABASE_URL=postgresql://localhost/postgres cargo test --test provider
+```
+
 ### Concurrent Payments
 
 <!-- N concurrent requests: at most one succeeds, no double charges, consistent final state. -->
@@ -143,10 +156,9 @@ requires bounded worker concurrency. Webhook retries use exponential waits of
 <!-- Document unfinished work if the 4 to 6 hour budget was exceeded. If using a language other than Rust, briefly justify it here. -->
 
 The database constraints do not yet implement the complete payment workflow.
-Remaining work includes the API contract and handlers, API-key administration,
-provider HTTP behavior and recovery, durable workers, webhook signing and
-delivery, Compose bootstrapping, the three required behavioral tests, runnable
-curl examples, and the demo recording. Documentation distinguishes agreed plans
+Remaining work includes application payment admission and recovery, durable
+workers, webhook signing/delivery, Compose bootstrapping, full acceptance tests,
+complete curl examples, and the demo recording. Documentation distinguishes agreed plans
 from verified implementation as work progresses.
 
 ## Documentation

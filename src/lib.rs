@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod error;
 pub mod events;
+pub mod provider;
 pub mod resources;
 
 use axum::{Json, Router, extract::State, middleware, routing::get};

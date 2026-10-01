@@ -12,8 +12,8 @@ these documentation files as design and implementation progress. At my request,
 GPT-6.1 Sol subagents with low reasoning implemented the database migrations and
 schema checks. I then requested GPT-6.1 Sol subagents with high reasoning for the
 remaining implementation. The main agent reviews, validates, and commits their
-work in the agreed sequence. At this documentation checkpoint those features are
-being implemented and are not yet verified.
+work in the agreed sequence. Features are verified in stages before their commits; later stages remain in
+progress.
 
 The first high-reasoning implementation stage added key administration,
 authentication, shared JSON errors, and readiness checks. Review corrected the
@@ -30,6 +30,12 @@ Validation applied both migration sets to isolated PostgreSQL test databases and
 passed all three schema tests, covering money/state constraints, tenant
 boundaries, payment uniqueness, webhook payload preservation, and provider data.
 These tests do not yet verify the unimplemented HTTP payment workflow.
+
+The provider stage added persisted operation identity and readiness before HTTP
+delays. Review corrected the decline response field to the assignment’s `code`
+contract and rejected duplicate idempotency headers. Four provider tests passed,
+including concurrent submission, mismatches, cancellation/restart, and stored
+success behind a simulated HTTP 500.
 
 ## Three Decisions I Made Independently or Against AI Suggestions
 
