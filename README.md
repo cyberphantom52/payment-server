@@ -1,204 +1,260 @@
 # Invoice & Payment Service
 
-<!-- Fill in a brief project description. -->
-
-A Rust invoice and payment service using Axum and PostgreSQL, with a separate
-mock payment provider. The database model, API-key administration/authentication,
-and health endpoint are implemented. Customer/invoice APIs and transactional
-invoice-created events, the durable mock provider, and payment admission/recovery
-and signed webhook delivery are implemented. Compose setup is the next stage.
+A Rust service using Axum, SQLx, and PostgreSQL. It creates immutable USD invoices,
+accepts payments asynchronously, recovers uncertain outcomes through a separate
+mock payment provider, and delivers signed webhooks with durable retry budgets.
 
 ## Run Instructions
 
-Implementation proceeds in auditable commits: contracts, API-key administration,
-customer/invoice APIs, durable provider, payment recovery, webhooks, Compose/demo
-bootstrap, and verified submission docs. Each feature commit includes relevant
-tests and documentation updates. No commits are pushed automatically.
-
-The target command is `docker compose up`; Compose files are not implemented at
-this checkpoint. Validation currently uses disposable PostgreSQL. Podman is
-available on the development host with podman-compose 1.6.0; container validation
-will use Podman.
-
-For the implemented native development foundation, use a fresh application
-database and provide its URL (the database must already exist):
+With Docker and its Compose plugin installed:
 
 ```sh
-export DATABASE_URL=postgresql://localhost/payment_app
-cargo run -- admin create-business "Example Business"
-cargo run -- admin create-key 1
-cargo run -- admin list-keys 1
-cargo run -- admin revoke-key 2
-cargo run
+docker compose up
 ```
 
-Creation commands reveal the new key once; listing returns metadata only. Rotate
-by creating a replacement, updating the client, and revoking the old key. IDs in
-these examples must be replaced with the returned IDs. `GET /health` returns
-`200 {"status":"ok"}` while the database is reachable, otherwise JSON `503`.
-`BIND_ADDR` defaults to `127.0.0.1:3000` for native development.
+This builds both binaries, initializes PostgreSQL with separate application and
+provider databases/credentials, applies migrations, and creates a demo business,
+API key, and webhook endpoint. No manual database or business setup is required.
+The first build needs network access to download images and Rust dependencies.
 
-<!-- Prerequisites, docker compose up, service URLs, and how to obtain a business API key. Setup must require no manual steps. -->
+The application is at `http://127.0.0.1:3000`. Only its port is published, on the
+loopback interface. The provider (`payment-provider:3001`) and PostgreSQL remain
+inside the Compose network. `GET /health` checks database connectivity. Follow
+verified webhook receipts with:
 
-## Configuration
+```sh
+docker compose logs -f payment-provider
+```
 
-<!-- Environment variables and relevant defaults. -->
+The local development API key is:
 
-The current application reads `DATABASE_URL` and applies `migrations/` through
-SQLx on startup. The initial migration creates the assignment tables. Use a fresh
-assignment database if an older database already applied the removed learning
-migration. Provider migrations live in `provider_migrations/` and require a
-separate database. Run it with `DATABASE_URL=postgresql://localhost/payment_provider
-cargo run --bin payment-provider` (on one line). It applies provider migrations
-and listens on `127.0.0.1:3001` by default.
+```sh
+export API_KEY=1111111111111111111111111111111111111111111111111111111111111111
+export BASE_URL=http://127.0.0.1:3000
+```
+
+All fixed credentials in `docker-compose.yml` are **development-only**. The demo
+signing secret is 64 `2` characters; the demo endpoint is already registered.
+Bootstrap is transactional and checks existing key hashes, including revoked
+keys. Restarting neither duplicates the business nor reactivates a revoked key.
+A changed URL/secret for the existing demo identity causes a startup error.
+
+Use `docker compose down` to stop while keeping the named database volume.
+Rebuild after source changes with `docker compose up --build`. If port 3000 is
+occupied, use `APP_PORT=3002 docker compose up` and update `BASE_URL` accordingly.
+
+Podman users can replace `docker compose` with `podman compose`. Container
+validation passed using Podman Engine 5.7.1 (Linux arm64 VM), the Homebrew
+Podman client 6.1.3, and podman-compose 1.6.0. Docker Engine is unavailable on the
+development host and is not claimed as tested.
 
 ## Curl Examples
 
-<!-- Provide 3 to 4 runnable examples, including authentication and representative responses. -->
+These four examples use `curl` and `jq` and capture returned IDs, so they also work
+with an existing database. Run them in the same shell after setting the variables
+above. The two payment cases use different invoices.
 
-### Create a Customer
+### 1. Create a Customer
 
 ```sh
-curl -sS http://localhost:3000/customers \
+CUSTOMER=$(curl -fsS "$BASE_URL/customers" \
   -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"name":"Ada","email":"ada@example.com"}'
+  -d '{"name":"Ada","email":"ada@example.com"}')
+printf '%s\n' "$CUSTOMER"
+CUSTOMER_ID=$(printf '%s' "$CUSTOMER" | jq -r '.id')
 ```
 
-Set `API_KEY` to a key returned by the admin CLI. Creation returns HTTP `201`.
+Returns `201`, for example `{"id":1,"business_id":1,"name":"Ada",...}`.
 
-### Create an Invoice
+### 2. Create an Invoice
 
 ```sh
-curl -sS http://localhost:3000/invoices \
+INVOICE=$(curl -fsS "$BASE_URL/invoices" \
   -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -d '{"customer_id":1,"due_date":"2026-10-31","line_items":[{"description":"Notebook","quantity":2,"unit_amount_cents":1000}]}'
+  -d "{\"customer_id\":$CUSTOMER_ID,\"due_date\":\"2026-10-31\",\"line_items\":[{\"description\":\"Notebook\",\"quantity\":2,\"unit_amount_cents\":1000}]}")
+printf '%s\n' "$INVOICE"
+INVOICE_ID=$(printf '%s' "$INVOICE" | jq -r '.id')
 ```
 
-Use the returned customer ID. The server returns `201`, an `open` invoice, and
-`total_cents: 2000`. Creation/detail responses include ordered line items;
-paginated invoice lists return summaries without line items.
+Returns `201` with `state: "open"`, `total_cents: 2000`, and ordered line items.
+The server computes the total; supplied totals are rejected.
 
-### Attempt a Successful Payment
+### 3. Attempt a Successful Payment
 
 ```sh
-curl -i http://localhost:3000/invoices/1/pay \
+ACCEPTED=$(curl -fsS "$BASE_URL/invoices/$INVOICE_ID/pay" \
   -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: example-success' -d '{"card_token":"tok_success"}'
+  -H "Idempotency-Key: demo-success-$INVOICE_ID" -d '{"card_token":"tok_success"}')
+printf '%s\n' "$ACCEPTED"
+ATTEMPT_ID=$(printf '%s' "$ACCEPTED" | jq -r '.payment_attempt_id')
+curl -fsS "$BASE_URL/payment-attempts/$ATTEMPT_ID" -H "Authorization: Bearer $API_KEY"
 ```
 
-Returns `202` with `payment_attempt_id`, `invoice_id`, and `status: "pending"`.
-Use the returned `Location` to read the eventual outcome. `PSP_URL` defaults to
-`http://127.0.0.1:3001`; run the provider against its own database first.
+Acceptance returns `202 {"payment_attempt_id":1,"invoice_id":1,"status":"pending"}`
+with a `Location` header. The lookup initially may be pending; repeat it to see
+`succeeded` with a UUID `psp_ref`. The invoice becomes paid and an `invoice.paid`
+webhook is delivered. Repeating the same payment command/key replays the original
+acceptance bytes and does not call the provider again.
 
-### Attempt a Failed Payment
-
-<!-- Use tok_card_declined; show Idempotency-Key on payment requests. -->
-
-## Tests
-
-<!-- Commands to run tests and results. Explain any skipped required test. -->
-
-Schema checks use a PostgreSQL role with `CREATEDB` access. SQLx creates isolated
-test databases and applies the appropriate application or provider migration:
+### 4. Attempt a Declined Payment
 
 ```sh
-DATABASE_URL=postgresql://localhost/postgres cargo test --test schema
+DECLINED_INVOICE=$(curl -fsS "$BASE_URL/invoices" \
+  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+  -d "{\"customer_id\":$CUSTOMER_ID,\"due_date\":\"2026-10-31\",\"line_items\":[{\"description\":\"Decline example\",\"quantity\":1,\"unit_amount_cents\":500}]}")
+DECLINED_ID=$(printf '%s' "$DECLINED_INVOICE" | jq -r '.id')
+DECLINED_ACCEPTANCE=$(curl -fsS "$BASE_URL/invoices/$DECLINED_ID/pay" \
+  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: demo-decline-$DECLINED_ID" -d '{"card_token":"tok_card_declined"}')
+printf '%s\n' "$DECLINED_ACCEPTANCE"
+DECLINED_ATTEMPT=$(printf '%s' "$DECLINED_ACCEPTANCE" | jq -r '.payment_attempt_id')
+curl -fsS "$BASE_URL/payment-attempts/$DECLINED_ATTEMPT" -H "Authorization: Bearer $API_KEY"
 ```
 
-Set the URL to your test PostgreSQL instance and role. These checks cover cents
-and state constraints, tenant foreign keys, payment uniqueness, webhook
-destination constraints, and provider records. The payment integration suite
-exercises HTTP concurrency, exact acceptance replay, and recovery through the
-separately migrated provider database.
+This also returns `202`. Repeated lookup eventually shows `status: "failed"` and
+`failure_code: "card_declined"`. The invoice stays open; an
+`invoice.payment_failed` webhook is delivered. A new key can start a fresh attempt
+after this confirmed decline.
 
-Verified: all three schema tests, two authentication tests, and the admin CLI
-parser test passed against disposable PostgreSQL where needed. Authentication
-checks include overlapping key rotation, revocation, business identity, malformed
-credentials, JSON errors, and transactional business/key creation. Formatting
-and compilation checks passed. Run the foundation checks with:
+To demonstrate recovery, create another invoice and use `tok_timeout` or
+`tok_network_error`. The former resolves after roughly 30–35 seconds; the latter
+stores success behind a simulated `500` and resolves by lookup. Neither changes
+an uncertain result into a decline.
+
+## Administration and Native Development
+
+The demo business has ID 1 on a fresh volume. Rotate its key by issuing another,
+moving clients to the returned key, then revoking the old key. IDs below refer to
+that fresh demo; inspect returned metadata when using another database.
 
 ```sh
-DATABASE_URL=postgresql://localhost/postgres cargo test --test auth --bin payment-server
+docker compose exec -T app payment-server admin create-key 1
+docker compose exec -T app payment-server admin list-keys 1
+# After clients have adopted the replacement, revoke the original demo key:
+docker compose exec -T app payment-server admin revoke-key 1
+# Separate business provisioning:
+docker compose exec -T app payment-server admin create-business "Another Business"
 ```
 
-The resource integration test also passed. It exercises business isolation,
-pagination/state filtering, integer overflow rejection, line ordering, endpoint
-capture, and rollback of invoice/items/event together after a forced failure:
+Creation reveals a key once. Listing exposes metadata only. Revoking an already
+revoked key is safe. These commands use database credentials rather than a public
+administration endpoint. Keep bootstrap settings fixed when rotating keys.
+
+Native development needs Rust and two existing PostgreSQL databases. In separate
+terminals, using each database owner's connection URL:
 
 ```sh
-DATABASE_URL=postgresql://localhost/postgres cargo test --test resources
+DATABASE_URL=postgresql://localhost/payment_provider cargo run --bin payment-provider
+DATABASE_URL=postgresql://localhost/payment_app cargo run --bin payment-server
 ```
 
-Four provider HTTP tests passed: concurrent duplicates share one durable operation,
-changed inputs conflict, all mock tokens behave as specified, and cancelled
-requests recover through lookup after a server restart. The focused restart test
-advances the stored timeout deadline; the payment suite separately runs the real
-30-second provider delay.
+Provision a native business with:
 
 ```sh
-DATABASE_URL=postgresql://localhost/postgres cargo test --test provider
+DATABASE_URL=postgresql://localhost/payment_app cargo run -- admin create-business "Example Business"
 ```
 
-Five payment integration tests passed, including the real 30-second scenario.
+Startup applies SQLx migrations automatically. Provider migrations only run on the
+provider database. Use fresh assignment databases if older learning migrations
+were previously applied; committed migrations are not rewritten.
 
-### Webhook Delivery
+| Variable | Native behavior / Compose setting |
+| --- | --- |
+| `DATABASE_URL` | Required for each binary; separate databases and roles in Compose. |
+| `BIND_ADDR` | Defaults to `127.0.0.1:3000` for app, `127.0.0.1:3001` for provider; Compose binds inside containers on `0.0.0.0`. |
+| `PSP_URL` | App default `http://127.0.0.1:3001`; Compose uses `http://payment-provider:3001`. |
+| `WEBHOOK_ALLOWED_URLS` | Comma-separated exact destination URLs; empty by default. |
+| `DEMO_WEBHOOK_URL` | The one explicit HTTP exception; must also be allowlisted. Compose sets the provider's `/demo/webhooks` URL. |
+| `DEMO_API_KEY` | Optional development bootstrap key, 64 hex characters. |
+| `DEMO_WEBHOOK_SECRET` | 64 hex characters; app bootstrap and provider receiver share this in Compose. |
+| `APP_PORT` | Compose host port, default 3000; always bound to loopback. |
 
-Nine focused tests passed: HMAC verification against an independent vector,
-timestamp/signature rejection, durable duplicate receipt handling, endpoint URL
-policy, exponential retry scheduling, payload stability, remaining-lifetime
-timeouts, disabled redirects, and cancellation of a reserved fifth dispatch.
-Recovery exhausts that event without sending a sixth request.
+On the app, the three `DEMO_*` values must be present together or all absent.
+The provider only reads `DEMO_WEBHOOK_SECRET`; without it, the demo receiver
+returns `503`. Normal registered endpoints get random secrets. HTTPS is required
+for allowlisted external destinations; redirects are disabled. Registration
+applies only to future events.
+
+## Tests and Verified Results
+
+Run tests against a disposable PostgreSQL instance whose role has `CREATEDB`:
 
 ```sh
-DATABASE_URL=postgresql://localhost/postgres cargo test --test webhooks
+export DATABASE_URL=postgresql://localhost/postgres
+cargo fmt --all -- --check
+cargo check --bins --locked
+cargo test --locked
+cargo clippy --all-targets --locked -- -D warnings
 ```
 
-Set `WEBHOOK_ALLOWED_URLS` to comma-separated exact destination URLs. HTTPS is
-required except for an explicitly configured `DEMO_WEBHOOK_URL`, which must also
-be allowlisted. Default: no destinations allowed. The provider's demo receiver
-is `/demo/webhooks`; set its `DEMO_WEBHOOK_SECRET` to the endpoint's 64-character
-hex secret. Verified new receipts are logged and stored in the provider database.
+SQLx creates isolated test databases. Payment tests create a separate provider
+database and communicate with it over HTTP. The real timeout test takes about
+33 seconds. With dependencies already cached, add `--offline` to Cargo checks.
 
-### Concurrent Payments
+The complete native suite passed **27 tests**, with no ignored tests:
 
-`tests/payments.rs` sends 20 simultaneous requests with distinct keys for one
-invoice: one is admitted, one provider operation exists, and the invoice becomes
-paid. Twenty same-key requests share an identical acceptance and attempt.
+| Checks | Evidence |
+| --- | --- |
+| Schema (3) | Money/state constraints, tenant foreign keys, active-attempt uniqueness, provider persistence. |
+| Authentication (2) and CLI (1) | Key rotation/revocation, business scope, JSON errors, transactional provisioning. |
+| Resources (1 grouped integration test) | Checked overflow, validation, pagination/filtering, line order, event capture, rollback. |
+| Provider (4) | All tokens, concurrent duplicates/mismatches, cancelled request and restart persistence. |
+| Payments (5) | 20 competing requests admit one charge; 20 matching requests replay one attempt; settled replay adds zero PSP calls; decline permits retry; timeout/network/crash recovery; malformed results stay pending; atomic finalization. |
+| Webhooks (9) | Independent HMAC vector, invalid/stale/duplicate signatures, durable receipt deduplication, exact payload retries, exponential scheduling, redirects disabled, lifetime timeout, cancelled fifth dispatch cannot produce a sixth. |
+| Bootstrap (2) | One-time seed, revoked key stays revoked, invalid/mismatched configuration fails safely. |
 
-### Idempotency
+Formatting, binary compilation, and strict Clippy checks passed. The final source
+also built as a release container. A fresh `payment-audit` Compose project passed
+the four README examples on port 18080, with both database roles denied CONNECT
+to the other's database. All three services became healthy without manual setup.
 
-The suite compares status, raw response bytes, and Location after settlement,
-using a provider request counter to verify replays make no additional HTTP call.
-Changed input conflicts; a confirmed decline permits a fresh key.
-
-### PSP Failure
-
-The real 30-second timeout scenario verifies prompt acceptance, a two-second
-worker HTTP timeout, pending-state exclusion, and eventual success. Other cases
-cover simulated network loss, provider restart with a committed success, malformed
-results, and transactional settlement rollback when event persistence fails.
-
-```sh
-DATABASE_URL=postgresql://localhost/postgres cargo test --test payments
-```
+The runtime check rotated the demo key, revoked the original, and recreated the
+whole stack while a timeout payment remained pending. The replacement key kept
+working; the revoked key stayed `401`. Timeout/network-error payments recovered
+to success. Final persisted counts were one business, two keys (one revoked), one
+endpoint, four invoices, four provider operations, and eight delivered events with
+eight durable demo receipts. No bootstrap duplication or extra charge occurred.
 
 ## Demo Video
 
-<!-- Add a publicly accessible, no-login link to a 5 to 10 minute recording. Cover in order: architecture (1 to 2 min), live demo (2 to 3 min), unscripted state machine walkthrough (1 to 2 min), unscripted failure-mode code walkthrough (1 to 2 min). Show docker compose up, customer/invoice creation, successful and declined payments, and webhook deliveries. -->
+**Author action required:** record a 5–10 minute walkthrough and replace this
+paragraph with a publicly accessible, no-login link. No recording has been made
+or represented as complete by the implementation agents.
 
-## Remaining Work and Known Limitations
+Cover these in order:
 
-The agreed deployment is one app instance with separate sequential payment and
-webhook workers. Multiple instances require durable job claims; higher throughput
-requires bounded worker concurrency. Webhook retries use exponential waits of
-5, 10, 20, and 40 seconds after the initial attempt, with five attempts and a
-15-minute lifetime. State APIs provide missed-notification reconciliation.
+1. Architecture (1–2 minutes): app, provider, separate databases, request flow,
+   and transactional webhook creation.
+2. Live demo (2–3 minutes): `docker compose up`, the four curl examples, and
+   verified webhook receipt logs.
+3. Unscripted state machine walkthrough (1–2 minutes): explain open → paid,
+   pending versus confirmed failure, terminal state, and deliberate omissions.
+4. Unscripted failure-mode walkthrough (1–2 minutes): choose a failure from
+   DESIGN.md and walk through the actual lines in `src/payments.rs` and, where
+   relevant, `src/provider.rs`. Use your own explanation rather than reading a script.
 
-<!-- Document unfinished work if the 4 to 6 hour budget was exceeded. If using a language other than Rust, briefly justify it here. -->
+## Limitations and Submission Checklist
 
-Remaining work includes Compose bootstrapping, the full
-acceptance run, complete curl examples, and the demo recording. Documentation
-distinguishes agreed plans from verified implementation as work progresses.
+Run one application instance: payment and webhook workers are separately
+sequential, while HTTP requests remain concurrent. Higher throughput needs
+bounded worker concurrency; safe replicas need durable work claims/leases.
+The provider and application share one PostgreSQL instance, so availability is
+shared despite separate ownership. Payment recovery depends on eventual provider
+availability. Keys, attempts, events, and demo receipts have no retention policy.
+
+There are no refunds, partial payments, draft/edit/void workflows, multiple webhook
+destinations, event-history API, or manual redelivery endpoint. Five delivery
+attempts use waits of 5, 10, 20, and 40 seconds within 15 minutes; exhausted events
+stay stored, and businesses reconcile through invoice/attempt APIs. Production
+TLS, secret management, monitoring, backups, and rate limiting remain deployment
+work described in DESIGN.md.
+
+Before submitting, add the recording link, complete the personal reflection in
+DESIGN.md and the author correction example in AI_USAGE.md, and review the design
+in your own words. Those human contributions are intentionally not fabricated.
+The assignment requests a 4–6 hour time budget; report your actual focused time
+and any remaining work honestly. Git history records implementation stages and
+validation; nothing is pushed automatically.
 
 ## Documentation
 

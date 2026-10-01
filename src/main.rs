@@ -1,5 +1,5 @@
 use payment_server::{
-    AppState, auth, error::AppError, payments::Worker, router_with_webhooks, webhooks,
+    AppState, auth, bootstrap, error::AppError, payments::Worker, router_with_webhooks, webhooks,
 };
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -42,9 +42,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|url| !url.is_empty())
         .map(str::to_owned)
         .collect();
-    let webhook_config =
-        webhooks::WebhookConfig::new(allowed_urls, std::env::var("DEMO_WEBHOOK_URL").ok())
-            .map_err(|error| std::io::Error::other(error.message))?;
+    let demo_url = std::env::var("DEMO_WEBHOOK_URL").ok();
+    let webhook_config = webhooks::WebhookConfig::new(allowed_urls, demo_url.clone())
+        .map_err(|error| std::io::Error::other(error.message))?;
+    let demo_key = std::env::var("DEMO_API_KEY").ok();
+    let demo_secret = std::env::var("DEMO_WEBHOOK_SECRET").ok();
+    bootstrap::seed(
+        &db,
+        demo_key.as_deref(),
+        demo_secret.as_deref(),
+        demo_url.as_deref(),
+    )
+    .await
+    .map_err(|error| std::io::Error::other(error.message))?;
     let webhook_client =
         webhooks::delivery_client().map_err(|error| std::io::Error::other(error.message))?;
     let webhook_db = db.clone();

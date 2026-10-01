@@ -1,8 +1,8 @@
 # API Documentation
 
-Implementation checkpoint: all endpoints below are implemented, including
-signed webhook delivery and the internal demo receiver. Compose/demo bootstrap
-validation is the next stage.
+All endpoints below are implemented, including signed webhook delivery and the
+internal demo receiver. Compose automatically provisions the development business,
+key, and fixed endpoint; configuration and verified commands are in README.md.
 
 ## Conventions and authentication
 

@@ -1,0 +1,63 @@
+# Fixed credentials and signing keys below are for the local development demo only.
+services:
+  db:
+    image: docker.io/library/postgres:18.6-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: development-admin-password
+      POSTGRES_DB: postgres
+      APP_DB_PASSWORD: development-app-password
+      PROVIDER_DB_PASSWORD: development-provider-password
+    volumes:
+      - payment_data:/var/lib/postgresql
+      - ./docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  payment-provider:
+    build: .
+    image: payment-server:development
+    command: ["payment-provider"]
+    environment:
+      DATABASE_URL: postgresql://payment_provider:development-provider-password@db/payment_provider
+      BIND_ADDR: 0.0.0.0:3001
+      DEMO_WEBHOOK_SECRET: "2222222222222222222222222222222222222222222222222222222222222222"
+    expose: ["3001"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3001/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    image: payment-server:development
+    environment:
+      DATABASE_URL: postgresql://payment_app:development-app-password@db/payment_app
+      BIND_ADDR: 0.0.0.0:3000
+      PSP_URL: http://payment-provider:3001
+      WEBHOOK_ALLOWED_URLS: http://payment-provider:3001/demo/webhooks
+      DEMO_WEBHOOK_URL: http://payment-provider:3001/demo/webhooks
+      DEMO_API_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
+      DEMO_WEBHOOK_SECRET: "2222222222222222222222222222222222222222222222222222222222222222"
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      payment-provider:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  payment_data:

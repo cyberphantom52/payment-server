@@ -1,9 +1,8 @@
 # Design
 
-Implementation checkpoint: schemas, API-key administration/authentication, health,
-customer/invoice APIs, transactional created events, the durable mock provider,
-payment admission/recovery, signed webhook delivery, and their tests are
-implemented. Compose bootstrap and full deployment validation remain.
+The service below is implemented. Native integration tests and a fresh Podman
+Compose deployment verified the payment, webhook, and restart behavior. README.md
+records the exact engine and validation limits.
 
 ## 1. Data Model
 
@@ -39,8 +38,9 @@ indexes support workers. Payload TEXT preserves exact webhook and replay bytes.
 One endpoint lets an event hold delivery metadata without another deliveries table.
 
 The provider owns separate database credentials and migrations on the same
-PostgreSQL instance. Application code only accesses it over HTTP. Separate
-databases model ownership, not independent availability. Use a fresh assignment
+PostgreSQL instance. Each role is denied CONNECT to the other database. Application
+code accesses the provider only over HTTP. Separate databases model ownership,
+not independent availability. Use a fresh assignment
 database if the removed learning migration was previously applied. Never rewrite
 committed migrations to introduce later features.
 
@@ -152,7 +152,9 @@ does not cancel requests already authenticated.
 An operator CLI creates businesses and keys, lists metadata, and revokes keys using
 database credentials. Rotate by adding a key, moving clients, and revoking the old
 one. Demo credentials are explicitly for development; bootstrap must not resurrect
-revoked keys. Webhook secrets must remain retrievable, unlike API-key hashes.
+revoked keys: bootstrap finds existing hashes including revoked rows and creates
+the business, key, and endpoint together only when absent. Webhook secrets must
+remain retrievable, unlike API-key hashes.
 
 ## 6. What We Cut and Why
 

@@ -143,7 +143,7 @@ async fn insert_key(
     Ok(IssuedApiKey { metadata, key })
 }
 
-fn hash_key(key: &str) -> String {
+pub fn hash_key(key: &str) -> String {
     hex(&Sha256::digest(key.as_bytes()))
 }
 

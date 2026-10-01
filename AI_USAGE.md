@@ -54,6 +54,13 @@ A final Clippy pass requested two style-only changes: collapsing the invoice sta
 assertion directly. The implementation agent applied these without changing the
 API or persistence behavior; formatting and strict Clippy checks then passed.
 
+The final implementation stage added the Compose image/services, separate database
+roles, health checks, and transactional demo bootstrap. I installed podman-compose
+through Homebrew. The main agent validated release builds and the fresh three-service
+stack with Podman Engine 5.7.1, client 6.1.3, and podman-compose 1.6.0. It executed
+the README examples and verified payment recovery, durable webhook receipts, and
+revocation across full stack recreation. Docker Engine itself was unavailable.
+
 ## Three Decisions I Made Independently or Against AI Suggestions
 
 ### Decision 1
