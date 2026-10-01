@@ -14,7 +14,10 @@ another business return `404`. Unknown JSON fields are rejected.
 Lists accept `limit` (default 20, range 1–100) and `after_id` (nonnegative,
 exclusive). Results are ordered by ascending ID. Continue with `next_after_id`
 until it is `null`; an empty result is `{"data":[],"next_after_id":null}`.
-These APIs describe current state, not a change feed.
+These APIs describe current state, not a change feed. To reconcile missed
+notifications, list invoices, read their current state, and page through each
+invoice’s payment-attempt history. A webhook is notification; the state APIs are
+the authoritative current view.
 
 Errors use one envelope:
 

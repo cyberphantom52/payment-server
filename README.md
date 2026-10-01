@@ -191,7 +191,7 @@ SQLx creates isolated test databases. Payment tests create a separate provider
 database and communicate with it over HTTP. The real timeout test takes about
 33 seconds. With dependencies already cached, add `--offline` to Cargo checks.
 
-The complete native suite passed **27 tests**, with no ignored tests:
+Final verification on 2026-10-01 passed **27 native tests**, with no ignored tests:
 
 | Checks | Evidence |
 | --- | --- |
@@ -214,6 +214,13 @@ working; the revoked key stayed `401`. Timeout/network-error payments recovered
 to success. Final persisted counts were one business, two keys (one revoked), one
 endpoint, four invoices, four provider operations, and eight delivered events with
 eight durable demo receipts. No bootstrap duplication or extra charge occurred.
+The isolated test containers and temporary native database were stopped afterward;
+the acceptance project’s named volume was retained.
+
+For the code walkthrough, start at [payment admission and recovery](src/payments.rs),
+[provider persistence](src/provider.rs), [transactional event creation](src/events.rs),
+and [webhook signing and delivery](src/webhooks.rs). The tests beside these flows
+live in `tests/payments.rs` and `tests/webhooks.rs`.
 
 ## Demo Video
 

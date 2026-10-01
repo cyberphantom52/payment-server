@@ -35,14 +35,16 @@ Unique indexes enforce API-key hashes, business/idempotency-key pairs, and at mo
 one pending or successful attempt per invoice; failed history remains. Business
 indexes support customer/invoice lists and state filtering; partial due-time
 indexes support workers. Payload TEXT preserves exact webhook and replay bytes.
+Endpoint business uniqueness guarantees one destination; provider references and
+receipt IDs are also unique. The line-item primary key supports ordered reads.
 One endpoint lets an event hold delivery metadata without another deliveries table.
 
 The provider owns separate database credentials and migrations on the same
 PostgreSQL instance. Each role is denied CONNECT to the other database. Application
 code accesses the provider only over HTTP. Separate databases model ownership,
-not independent availability. Use a fresh assignment
-database if the removed learning migration was previously applied. Never rewrite
-committed migrations to introduce later features.
+not independent availability. Use a fresh assignment database if the removed
+learning migration was previously applied. Never rewrite committed migrations
+to introduce later features.
 
 At 100x, measure queue age, query plans, and database load. Add bounded worker
 concurrency and atomic claims with expiring leases before running multiple
@@ -143,8 +145,8 @@ before acknowledging, including duplicates.
 ## 5. API Key Model
 
 Generate 32 cryptographically random bytes, hex encode, and reveal once. Store
-SHA-256 hash, prefix, and metadata. High-entropy generated keys do not need password
-stretching. Clients send Authorization: Bearer <key> over HTTPS in deployment;
+SHA-256 hash, eight-character prefix, and metadata. High-entropy generated keys
+do not need password stretching. Clients send Authorization: Bearer <key> over HTTPS in deployment;
 local Compose uses HTTP. Each request checks revocation and derives business scope
 from the key. A leaked key exposes that business's API capabilities. Revocation
 does not cancel requests already authenticated.
@@ -167,8 +169,9 @@ remain retrievable, unlike API-key hashes.
 4. A queue broker and public administration API: PostgreSQL persists work and the
    operator CLI handles provisioning.
 
-Before submission, the author must identify a deferred capability they personally
-wanted to build. That personal reflection must not be invented.
+**Author input required:** identify one deferred capability you personally wanted
+to build, and explain why you chose to cut it. The implementation agents cannot
+supply that personal reflection.
 
 ## 7. Production Readiness Gap
 

@@ -1,19 +1,15 @@
 # AI Usage
 
-<!-- Fill this honestly and specifically before submission. Do not invent independent decisions or corrections. -->
-
 ## Tools Used and What They Did
 
-<!-- For each tool: name, concrete tasks, output used or rejected, and your revisions. Include documentation-template assistance if applicable. -->
-
 Codex helped explain Axum, PostgreSQL, transactions, migrations, and webhooks,
-read the assignment, and discuss the schema and failure modes. It is maintaining
-these documentation files as design and implementation progress. At my request,
+read the assignment, and discuss the schema and failure modes. It also drafted
+and updated these documentation files during design and implementation. At my request,
 GPT-6.1 Sol subagents with low reasoning implemented the database migrations and
 schema checks. I then requested GPT-6.1 Sol subagents with high reasoning for the
-remaining implementation. The main agent reviews, validates, and commits their
-work in the agreed sequence. Features are verified in stages before their commits; later stages remain in
-progress.
+remaining implementation. The main agent reviewed, validated, and committed their
+work in the agreed sequence. Implementation stages are complete; final author
+review, the personal correction example below, and the recording remain.
 
 The first high-reasoning implementation stage added key administration,
 authentication, shared JSON errors, and readiness checks. Review corrected the
@@ -50,9 +46,9 @@ check rather than only setting the delivery counter in SQL. Tests verify the
 fifth dispatch is reserved before HTTP and restart recovery cannot send a sixth.
 The signature test also checks a value independently computed with Python's HMAC.
 
-A final Clippy pass requested two style-only changes: collapsing the invoice state-filter guard and using a boolean
-assertion directly. The implementation agent applied these without changing the
-API or persistence behavior; formatting and strict Clippy checks then passed.
+A final Clippy pass requested two style-only changes: collapsing the invoice
+state-filter guard and using a boolean assertion directly. The implementation
+agent applied these without changing the API or persistence behavior; formatting and strict Clippy checks then passed.
 
 The final implementation stage added the Compose image/services, separate database
 roles, health checks, and transactional demo bootstrap. I installed podman-compose
@@ -70,25 +66,13 @@ bootstrapping and documented database administration. I chose to retain a small
 administration CLI because I wanted API-key generation, rotation, and revocation
 demonstrated by working behavior, rather than only described in the design.
 
-<!-- AI proposal, if any: -->
-
-<!-- My choice: -->
-
-<!-- Why: -->
-
 ### Decision 2
 
 I selected an always-asynchronous payment API after discussing it with Codex.
 My reason was that a hybrid synchronous/asynchronous contract creates two result
-paths for both the service and its caller. Accepted requests will return `202`;
-status lookup and webhooks will expose the eventual result. This was a discussed
+paths for both the service and its caller. Accepted requests return `202`;
+status lookup and webhooks expose the eventual result. This was a discussed
 choice, not a rejection of an AI recommendation.
-
-<!-- AI proposal, if any: -->
-
-<!-- My choice: -->
-
-<!-- Why: -->
 
 ### Decision 3
 
@@ -102,12 +86,9 @@ with an HTTP 500 response, then recovery by lookup. Codex recommended durable
 provider idempotency from the outset; I did not introduce it against a contrary
 recommendation.
 
-<!-- AI proposal, if any: -->
-
-<!-- My choice: -->
-
-<!-- Why: -->
-
 ## Something AI Got Wrong and How I Corrected It
 
-<!-- Describe the issue, correction, and verification. If nothing needed correction, explicitly say so and explain how correctness was verified. -->
+**Author input required:** describe a specific correction you personally made,
+why it was necessary, and how you verified it. The agent-review corrections listed
+above are not presented as corrections you independently found. Review the three
+first-person decision accounts for accuracy before submission.
