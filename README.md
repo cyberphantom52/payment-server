@@ -4,8 +4,9 @@
 
 A Rust invoice and payment service using Axum and PostgreSQL, with a separate
 mock payment provider. The database model, API-key administration/authentication,
-and health endpoint are implemented. Domain APIs, processing workers, and Compose
-setup are being built in the sequence below.
+and health endpoint are implemented. Customer/invoice APIs and transactional
+invoice-created events are implemented. Payment processing, webhook delivery,
+and Compose setup are being built in the sequence below.
 
 ## Run Instructions
 
@@ -54,7 +55,25 @@ separate database; provider startup integration is still pending.
 
 ### Create a Customer
 
+```sh
+curl -sS http://localhost:3000/customers \
+  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com"}'
+```
+
+Set `API_KEY` to a key returned by the admin CLI. Creation returns HTTP `201`.
+
 ### Create an Invoice
+
+```sh
+curl -sS http://localhost:3000/invoices \
+  -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"customer_id":1,"due_date":"2026-10-31","line_items":[{"description":"Notebook","quantity":2,"unit_amount_cents":1000}]}'
+```
+
+Use the returned customer ID. The server returns `201`, an `open` invoice, and
+`total_cents: 2000`. Creation/detail responses include ordered line items;
+paginated invoice lists return summaries without line items.
 
 ### Attempt a Successful Payment
 
@@ -87,6 +106,14 @@ and compilation checks passed. Run the foundation checks with:
 
 ```sh
 DATABASE_URL=postgresql://localhost/postgres cargo test --test auth --bin payment-server
+```
+
+The resource integration test also passed. It exercises business isolation,
+pagination/state filtering, integer overflow rejection, line ordering, endpoint
+capture, and rollback of invoice/items/event together after a forced failure:
+
+```sh
+DATABASE_URL=postgresql://localhost/postgres cargo test --test resources
 ```
 
 ### Concurrent Payments

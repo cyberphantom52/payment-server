@@ -1,8 +1,9 @@
 # Design
 
 Implementation checkpoint: schemas, API-key administration/authentication, health,
-and their tests are implemented. The remaining behavior below is the agreed
-contract, to be verified as each feature lands.
+customer/invoice APIs, transactional created events, and their tests are
+implemented. The remaining behavior below is the agreed contract, to be verified
+as each feature lands.
 
 ## 1. Data Model
 

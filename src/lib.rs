@@ -1,7 +1,9 @@
 pub mod auth;
 pub mod error;
+pub mod events;
+pub mod resources;
 
-use axum::{Json, Router, extract::State, routing::get};
+use axum::{Json, Router, extract::State, middleware, routing::get};
 use error::AppError;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -12,8 +14,13 @@ pub struct AppState {
 }
 
 pub fn router(state: AppState) -> Router {
+    let protected = resources::router().route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth::require_api_key,
+    ));
     Router::new()
         .route("/health", get(health))
+        .merge(protected)
         .fallback(|| async { AppError::not_found() })
         .method_not_allowed_fallback(|| async { AppError::method_not_allowed() })
         .with_state(state)

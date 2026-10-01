@@ -1,8 +1,9 @@
 # API Documentation
 
 Status: schemas, API-key authentication/administration, JSON error handling, and
-application health are implemented. The domain and provider endpoints below are
-the agreed contract and will be verified in subsequent commits.
+application health, customer/invoice endpoints, and transactional created events
+are implemented. Payment, webhook, and provider endpoints below remain the agreed
+contract until their feature commits.
 
 ## Conventions and authentication
 
@@ -40,7 +41,8 @@ prices, and positive total within i64. Reject client totals, unknown fields,
 and arithmetic overflow. Past due dates are allowed.
 
 GET /invoices/{id} returns the invoice with line items. GET /invoices lists
-invoices, optionally filtered by state=open|paid. Financial contents are immutable;
+invoice summaries without line items, optionally filtered by state=open|paid.
+Financial contents are immutable;
 creation starts open and only confirmed success moves to terminal paid.
 
 ## Payments
@@ -73,8 +75,10 @@ returns409. URLs must match the operator allowlist and use HTTPS except for the
 explicit internal demo URL. No URL/secret update endpoint.
 
 Event types: invoice.created, invoice.paid, invoice.payment_failed. Payload contains
-stable event ID, creation timestamp, and invoice/payment information; exact fields
-will be documented against the implementation.
+stable event ID, creation timestamp, and invoice/payment information. The envelope
+is `{"id":1,"type":"invoice.created","created_at":"...","data":{...}}`.
+Created-event data contains invoice_id, business_id, customer_id, state, and
+total_cents. Payment-event fields will be verified in the payment feature commit.
 
 Webhook-Timestamp contains Unix seconds. Webhook-Signature contains v1=<hex>.
 Sign timestamp ASCII + "." + exact body bytes using HMAC-SHA256. Verify before

@@ -20,6 +20,10 @@ authentication, shared JSON errors, and readiness checks. Review corrected the
 CLI to preserve the agreed `admin` command prefix. Its parser and authentication
 tests passed before the feature commit.
 
+The customer/invoice stage used the existing error and authentication helpers.
+Review checked tenant-qualified queries and transaction boundaries; integration
+tests verified checked cents arithmetic and rollback when event persistence fails.
+
 The schema review removed unnecessary copies of webhook destination URLs and
 secrets from event rows: the agreed fixed endpoint can be referenced directly.
 Validation applied both migration sets to isolated PostgreSQL test databases and
