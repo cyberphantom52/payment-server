@@ -2,6 +2,15 @@
 name = "payment-server"
 version = "0.1.0"
 edition = "2024"
+default-run = "payment-server"
+
+[[bin]]
+name = "payment-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "payment-provider"
+path = "src/bin/payment_service_provider.rs"
 
 [dependencies]
 axum = "0.8.9"
