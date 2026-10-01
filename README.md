@@ -4,7 +4,7 @@ A Rust service using Axum, SQLx, and PostgreSQL. It creates immutable USD invoic
 accepts payments asynchronously, recovers uncertain outcomes through a separate
 mock payment provider, and delivers signed webhooks with durable retry budgets.
 
-## Run Instructions
+## Running the Service
 
 With Docker and its Compose plugin installed:
 
@@ -43,10 +43,7 @@ Use `docker compose down` to stop while keeping the named database volume.
 Rebuild after source changes with `docker compose up --build`. If port 3000 is
 occupied, use `APP_PORT=3002 docker compose up` and update `BASE_URL` accordingly.
 
-Podman users can replace `docker compose` with `podman compose`. Container
-validation passed using Podman Engine 5.7.1 (Linux arm64 VM), the Homebrew
-Podman client 6.1.3, and podman-compose 1.6.0. Docker Engine is unavailable on the
-development host and is not claimed as tested.
+Podman users can replace `docker compose` with `podman compose`.
 
 ## Curl Examples
 
@@ -116,10 +113,9 @@ This also returns `202`. Repeated lookup eventually shows `status: "failed"` and
 `invoice.payment_failed` webhook is delivered. A new key can start a fresh attempt
 after this confirmed decline.
 
-To demonstrate recovery, create another invoice and use `tok_timeout` or
-`tok_network_error`. The former resolves after roughly 30–35 seconds; the latter
-stores success behind a simulated `500` and resolves by lookup. Neither changes
-an uncertain result into a decline.
+On a fresh invoice, `tok_timeout` resolves after roughly 30–35 seconds.
+`tok_network_error` stores success behind a simulated `500` and resolves by
+lookup. Both remain pending until the provider confirms the outcome.
 
 ## Administration and Native Development
 
@@ -154,9 +150,8 @@ Provision a native business with:
 DATABASE_URL=postgresql://localhost/payment_app cargo run -- admin create-business "Example Business"
 ```
 
-Startup applies SQLx migrations automatically. Provider migrations only run on the
-provider database. Use fresh assignment databases if older learning migrations
-were previously applied; committed migrations are not rewritten.
+Startup applies SQLx migrations automatically. Each binary runs only the
+migrations for its own database.
 
 | Variable | Native behavior / Compose setting |
 | --- | --- |
@@ -175,7 +170,7 @@ returns `503`. Normal registered endpoints get random secrets. HTTPS is required
 for allowlisted external destinations; redirects are disabled. Registration
 applies only to future events.
 
-## Tests and Verified Results
+## Verification
 
 Run tests against a disposable PostgreSQL instance whose role has `CREATEDB`:
 
@@ -191,8 +186,6 @@ SQLx creates isolated test databases. Payment tests create a separate provider
 database and communicate with it over HTTP. The real timeout test takes about
 33 seconds. With dependencies already cached, add `--offline` to Cargo checks.
 
-Final verification on 2026-10-01 passed **27 native tests**, with no ignored tests:
-
 | Checks | Evidence |
 | --- | --- |
 | Schema (3) | Money/state constraints, tenant foreign keys, active-attempt uniqueness, provider persistence. |
@@ -203,44 +196,22 @@ Final verification on 2026-10-01 passed **27 native tests**, with no ignored tes
 | Webhooks (9) | Independent HMAC vector, invalid/stale/duplicate signatures, durable receipt deduplication, exact payload retries, exponential scheduling, redirects disabled, lifetime timeout, cancelled fifth dispatch cannot produce a sixth. |
 | Bootstrap (2) | One-time seed, revoked key stays revoked, invalid/mismatched configuration fails safely. |
 
-Formatting, binary compilation, and strict Clippy checks passed. The final source
-also built as a release container. A fresh `payment-audit` Compose project passed
-the four README examples on port 18080, with both database roles denied CONNECT
-to the other's database. All three services became healthy without manual setup.
+Formatting, compilation, strict Clippy checks, and the release container build
+passed. Container acceptance used Podman on Linux arm64 with podman-compose;
+Docker Engine was not tested.
 
-The runtime check rotated the demo key, revoked the original, and recreated the
-whole stack while a timeout payment remained pending. The replacement key kept
-working; the revoked key stayed `401`. Timeout/network-error payments recovered
-to success. Final persisted counts were one business, two keys (one revoked), one
-endpoint, four invoices, four provider operations, and eight delivered events with
-eight durable demo receipts. No bootstrap duplication or extra charge occurred.
-The isolated test containers and temporary native database were stopped afterward;
-the acceptance project’s named volume was retained.
+A fresh Compose deployment passed all four curl examples and brought all three
+services to healthy status without manual setup. Checks covered database-role
+isolation, signed webhook receipts, and a full stack recreation during a pending
+payment. Payments recovered without duplicate charges, bootstrap data remained
+unique, and revoked keys remained invalid while replacement keys continued to work.
 
-For the code walkthrough, start at [payment admission and recovery](src/payments.rs),
+The core paths are [payment admission and recovery](src/payments.rs),
 [provider persistence](src/provider.rs), [transactional event creation](src/events.rs),
-and [webhook signing and delivery](src/webhooks.rs). The tests beside these flows
-live in `tests/payments.rs` and `tests/webhooks.rs`.
+and [webhook signing and delivery](src/webhooks.rs), with integration coverage in
+[payment tests](tests/payments.rs) and [webhook tests](tests/webhooks.rs).
 
-## Demo Video
-
-**Author action required:** record a 5–10 minute walkthrough and replace this
-paragraph with a publicly accessible, no-login link. No recording has been made
-or represented as complete by the implementation agents.
-
-Cover these in order:
-
-1. Architecture (1–2 minutes): app, provider, separate databases, request flow,
-   and transactional webhook creation.
-2. Live demo (2–3 minutes): `docker compose up`, the four curl examples, and
-   verified webhook receipt logs.
-3. Unscripted state machine walkthrough (1–2 minutes): explain open → paid,
-   pending versus confirmed failure, terminal state, and deliberate omissions.
-4. Unscripted failure-mode walkthrough (1–2 minutes): choose a failure from
-   DESIGN.md and walk through the actual lines in `src/payments.rs` and, where
-   relevant, `src/provider.rs`. Use your own explanation rather than reading a script.
-
-## Limitations and Submission Checklist
+## Scope and Limitations
 
 Run one application instance: payment and webhook workers are separately
 sequential, while HTTP requests remain concurrent. Higher throughput needs
@@ -255,13 +226,6 @@ attempts use waits of 5, 10, 20, and 40 seconds within 15 minutes; exhausted eve
 stay stored, and businesses reconcile through invoice/attempt APIs. Production
 TLS, secret management, monitoring, backups, and rate limiting remain deployment
 work described in DESIGN.md.
-
-Before submitting, add the recording link and review the design and AI disclosure
-in your own words. DESIGN.md records horizontal scaling as the capability I wanted
-but deliberately deferred; AI_USAGE.md records my correction of the retry policy.
-The assignment requests a 4–6 hour time budget; report your actual focused time
-and any remaining work honestly. Git history records implementation stages and
-validation; nothing is pushed automatically.
 
 ## Documentation
 

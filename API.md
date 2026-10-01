@@ -1,39 +1,23 @@
-# API Documentation
-
-All endpoints below are implemented, including signed webhook delivery and the
-internal demo receiver. Compose automatically provisions the development business,
-key, and fixed endpoint; configuration and verified commands are in README.md.
+# API Reference
 
 ## Conventions and authentication
 
-Local base URL: `http://localhost:3000`. Bodies are JSON. IDs are integers, money
+Local base URL: `http://127.0.0.1:3000`. Bodies are JSON. IDs are integers, money
 is integer USD cents, dates use `YYYY-MM-DD`, and timestamps use UTC RFC 3339.
 Protected routes require `Authorization: Bearer <key>`. Resources belonging to
 another business return `404`. Unknown JSON fields are rejected.
 
 Lists accept `limit` (default 20, range 1–100) and `after_id` (nonnegative,
-exclusive). Results are ordered by ascending ID. Continue with `next_after_id`
-until it is `null`; an empty result is `{"data":[],"next_after_id":null}`.
-These APIs describe current state, not a change feed. To reconcile missed
-notifications, list invoices, read their current state, and page through each
-invoice’s payment-attempt history. A webhook is notification; the state APIs are
-the authoritative current view.
+exclusive). Results are ordered by ascending ID. `next_after_id: null` marks the
+last page; an empty result is `{"data":[],"next_after_id":null}`.
+Invoice reads and payment-attempt history provide current state for reconciliation
+after missed or out-of-order webhooks.
 
 Errors use one envelope:
 
 ```json
 {"error":{"code":"invalid_input","message":"Expected a valid JSON request body"}}
 ```
-
-| Status | Code | Meaning |
-| --- | --- | --- |
-| 400 | `invalid_input` | Invalid body, query, header, or URL policy. |
-| 401 | `unauthorized` | Missing, invalid, or revoked API key. |
-| 404 | `not_found` | Missing resource, including another business's resource. |
-| 405 | `method_not_allowed` | Unsupported HTTP method. |
-| 409 | `conflict` | Reused key with changed input, payment state, or duplicate endpoint. |
-| 500 | `internal_error` | Unexpected error; details are logged, not returned. |
-| 503 | `unavailable` | Readiness failure or unconfigured demo receiver. |
 
 Public `GET /health` returns `200 {"status":"ok"}` when the database is reachable,
 otherwise `503` with the error envelope.
@@ -65,10 +49,10 @@ It returns `201`:
 {"id":1,"business_id":1,"customer_id":1,"due_date":"2026-10-31","total_cents":2000,"state":"open","created_at":"2026-10-01T10:00:00Z","paid_at":null,"line_items":[{"description":"Notebook","quantity":2,"unit_amount_cents":1000}]}
 ```
 
-Require nonempty items/descriptions, positive integer quantities, nonnegative
-integer prices, and a positive total within signed 64-bit range. Reject
-client-supplied totals and arithmetic overflow. Past due dates are allowed.
-The customer must belong to the authenticated business.
+Validation requires nonempty items/descriptions, positive integer quantities,
+nonnegative integer prices, and a positive total within signed 64-bit range.
+Client-supplied totals and arithmetic overflow return `400`. Past due dates are
+allowed. The customer must belong to the authenticated business.
 
 `GET /invoices/{id}` returns the same shape with `200`.
 `GET /invoices?state=open&limit=20` returns a page of invoice summaries: the same
@@ -86,7 +70,6 @@ return `202`, `Content-Type: application/json`, and `Location: /payment-attempts
 {"payment_attempt_id":42,"invoice_id":1,"status":"pending"}
 ```
 
-The body above illustrates the fields; clients must not depend on field ordering.
 Matching business/key/invoice/token retries replay the originally stored body
 bytes, status, and location even after settlement. Changed input returns `409`.
 New attempts conflict with a pending attempt or paid invoice. A confirmed decline
@@ -107,8 +90,8 @@ state filter. Neither endpoint exposes the stored mock card token.
 
 Timeouts, HTTP errors, and malformed provider responses leave attempts pending
 while the worker checks provider state again. The invoice remains open, with new
-attempts blocked until resolution. Query the attempt or receive a webhook for
-completion; repeating acceptance does not trigger another provider request.
+attempts blocked until resolution. Completion is available through attempt reads
+and webhooks; repeating acceptance does not trigger another provider request.
 
 ## Webhooks
 
@@ -119,11 +102,12 @@ returns `201`:
 {"id":1,"url":"https://approved.example/webhook","signing_secret":"<64 hex characters>"}
 ```
 
-Save the secret: no retrieval/update endpoint exists. A second registration for
-the same business returns `409`. URLs must exactly match a canonicalized operator
-allowlist and require HTTPS, except for the explicitly configured internal demo
-URL. Credentials and URL fragments are rejected. Registration affects future
-events only. The demo business already has its endpoint configured.
+The signing secret is returned only at registration; there is no retrieval or
+update endpoint. A second registration for the same business returns `409`.
+URLs must exactly match a canonicalized operator allowlist and require HTTPS,
+except for the explicitly configured internal demo URL. Credentials and URL
+fragments are rejected. Registration affects future events only. The demo
+business already has its endpoint configured.
 
 The stable event envelope is:
 
