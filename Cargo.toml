@@ -15,5 +15,12 @@ path = "src/bin/payment_service_provider.rs"
 [dependencies]
 axum = "0.8.9"
 reqwest = "0.13.5"
-sqlx = "0.9.0"
-tokio = "1.53.1"
+serde = { version = "1.0.229", features = ["derive"] }
+sqlx = { version = "0.9.0", default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "macros",
+    "migrate",
+    "tls-rustls",
+] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net"] }
