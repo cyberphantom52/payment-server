@@ -9,6 +9,15 @@ administration CLI, and Compose setup still need implementation.
 
 ## Run Instructions
 
+Implementation proceeds in auditable commits: contracts, API-key administration,
+customer/invoice APIs, durable provider, payment recovery, webhooks, Compose/demo
+bootstrap, and verified submission docs. Each feature commit includes relevant
+tests and documentation updates. No commits are pushed automatically.
+
+The target command is `docker compose up`; Compose files are not implemented at
+this checkpoint. Validation currently uses disposable PostgreSQL. Podman is
+installed on the development host, but its Compose provider still needs setup.
+
 <!-- Prerequisites, docker compose up, service URLs, and how to obtain a business API key. Setup must require no manual steps. -->
 
 ## Configuration
@@ -73,6 +82,12 @@ application has an unused `AppState.db` warning until handlers use the pool.
 <!-- Add a publicly accessible, no-login link to a 5 to 10 minute recording. Cover in order: architecture (1 to 2 min), live demo (2 to 3 min), unscripted state machine walkthrough (1 to 2 min), unscripted failure-mode code walkthrough (1 to 2 min). Show docker compose up, customer/invoice creation, successful and declined payments, and webhook deliveries. -->
 
 ## Remaining Work and Known Limitations
+
+The agreed deployment is one app instance with separate sequential payment and
+webhook workers. Multiple instances require durable job claims; higher throughput
+requires bounded worker concurrency. Webhook retries use exponential waits of
+5, 10, 20, and 40 seconds after the initial attempt, with five attempts and a
+15-minute lifetime. State APIs provide missed-notification reconciliation.
 
 <!-- Document unfinished work if the 4 to 6 hour budget was exceeded. If using a language other than Rust, briefly justify it here. -->
 

@@ -9,9 +9,11 @@
 Codex helped explain Axum, PostgreSQL, transactions, migrations, and webhooks,
 read the assignment, and discuss the schema and failure modes. It is maintaining
 these documentation files as design and implementation progress. At my request,
-GPT-6.1 Sol subagents with low reasoning implement the database migrations and
-schema checks; the main agent reviews and validates their work. API handlers,
-workers, and the provider protocol are not implemented at this stage.
+GPT-6.1 Sol subagents with low reasoning implemented the database migrations and
+schema checks. I then requested GPT-6.1 Sol subagents with high reasoning for the
+remaining implementation. The main agent reviews, validates, and commits their
+work in the agreed sequence. At this documentation checkpoint those features are
+being implemented and are not yet verified.
 
 The schema review removed unnecessary copies of webhook destination URLs and
 secrets from event rows: the agreed fixed endpoint can be referenced directly.
@@ -51,10 +53,15 @@ choice, not a rejection of an AI recommendation.
 
 ### Decision 3
 
-Pending: record another concrete decision and my reasoning as implementation
-continues. Do not count simple acceptance of a suggestion as an independent
-decision or invent a disagreement. Codex recommended durable provider idempotency
-from the outset; we retained it after discussing its scope.
+Codex proposed hand-picked retry intervals of 5, 30, 120, and 600 seconds. I asked
+for a standard backoff policy instead. We chose exponential waits of 5, 10, 20,
+and 40 seconds. I preferred a recognized policy to a hand-picked sequence.
+
+Separately, I challenged the network-error mock recommendation and asked Codex to
+reason from client expectations and idempotency. We chose stored provider success
+with an HTTP 500 response, then recovery by lookup. Codex recommended durable
+provider idempotency from the outset; I did not introduce it against a contrary
+recommendation.
 
 <!-- AI proposal, if any: -->
 

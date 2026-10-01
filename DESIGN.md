@@ -1,163 +1,172 @@
 # Design
 
-<!-- Target roughly 800 to 1,500 words. Describe actual implementation choices and limitations. -->
-
-Status: SQL migrations implement the data model. The behavior described below
-records agreed design decisions; HTTP handlers, workers, provider recovery, and
-the administration CLI are not implemented yet. Retry policy and API details
-remain to be designed.
+Implementation checkpoint: schemas and their tests are implemented. The remaining
+behavior below is the agreed contract, to be verified as each feature lands.
 
 ## 1. Data Model
 
-<!-- Add an ER diagram or table listing. For each table: shape, indexes, primary key strategy, why this shape over alternatives, and changes at 100x scale. Cover businesses, customers, invoices, line items, payment attempts, and supporting tables actually used. Explain integer USD cents and server-computed totals. -->
-
-Application records use `bigint` identity primary keys. IDs are identifiers, not
-authorization: every request must derive its business from its API key and scope
-its queries accordingly. Composite foreign keys additionally prevent an invoice
-from referencing another business's customer or an attempt from referencing
-another business's invoice.
-
 | Table | Purpose |
 | --- | --- |
-| `businesses` | Business identity and name. |
-| `api_keys` | Business-scoped key hash, display prefix, creation and revocation timestamps; no raw API key. |
-| `customers` | Business-scoped customer name and email. |
-| `invoices` | Customer, due date, `total_cents`, `open`/`paid` state and timestamps. |
-| `invoice_line_items` | Ordered descriptions, quantities, and `unit_amount_cents`; primary key `(invoice_id, position)`. |
-| `payment_attempts` | Request identity, idempotency key, pending/final result, original accepted response, and recovery scheduling. |
-| `webhook_endpoints` | One fixed destination and retrievable signing secret per business. |
-| `webhook_events` | Event payload and delivery state for its captured destination. |
+| businesses | Business identity and name. |
+| api_keys | Business, unique key hash, prefix, creation/revocation timestamps. |
+| customers | Business, name, email, creation timestamp. |
+| invoices | Business/customer, due date, total cents, state and timestamps. |
+| invoice_line_items | Invoice, position, description, quantity, unit cents. |
+| payment_attempts | Request identity, result, original acceptance and recovery schedule. |
+| webhook_endpoints | One fixed URL and retrievable signing secret per business. |
+| webhook_events | Exact event payload, captured endpoint, delivery count/schedule/result. |
+| Provider provider_operations | Attempt identity, original input, stable UUID, outcome and readiness. |
 
-Money is USD in integer cents, represented by PostgreSQL `bigint` and eventually
-Rust `i64`. An invoice supports multiple line items, including the single-item
-case. The server will compute `sum(quantity * unit_amount_cents)` using checked
-integer arithmetic and insert the invoice and its items in one transaction.
-Clients do not choose the total. A row-level `CHECK` cannot verify that total
-against other rows; that invariant and immutable invoice contents belong to the
-application write path. The schema requires positive invoice totals and
-quantities, permits zero-priced items, and rejects an individual line total
-exceeding the `i64` ceiling.
+Application primary keys are bigint identities. Line items use (invoice_id,
+position). Provider operations use the application attempt ID as their primary
+key and a UUID provider reference. Numeric IDs are not authorization: queries
+must use authenticated business scope. Composite foreign keys also prevent
+cross-business customer, invoice, and endpoint references.
 
-Payment idempotency keys are unique within a business. A partial unique index
-permits at most one `pending` or `succeeded` attempt per invoice while retaining
-failed attempts. These database constraints back up, but do not replace, the
-payment admission transaction and provider idempotency still to be implemented.
-Business-leading indexes support customer and invoice listing, with a dedicated
-invoice state-filter index. Partial due-time indexes support pending payment and
-webhook scans. API-key hashes and provider references have unique indexes.
+Money is integer USD cents, PostgreSQL bigint and Rust i64. Checked multiplication
+and addition reject overflow. Quantities and totals must be positive; unit prices
+may be zero. The server writes a computed invoice, its nonempty line items, and
+created event in one transaction. A row CHECK cannot validate a sum across other
+rows; total consistency and financial immutability belong to application writes.
 
-Webhook payloads are stored as serialized JSON text so retries can send exactly
-the same bytes. An event captures its destination when created; without an
-endpoint it remains recorded but is not scheduled. Later registration applies
-only to future events. A single endpoint lets one table hold both event and
-delivery metadata; supporting multiple destinations would require separate
-delivery records. API keys can be hashed, whereas webhook secrets must remain
-available to the sender for signing.
+Unique indexes enforce API-key hashes, business/idempotency-key pairs, and at most
+one pending or successful attempt per invoice; failed history remains. Business
+indexes support customer/invoice lists and state filtering; partial due-time
+indexes support workers. Payload TEXT preserves exact webhook and replay bytes.
+One endpoint lets an event hold delivery metadata without another deliveries table.
 
-The mock provider will own an independent database on the same PostgreSQL
-instance, with its own migration directory and operation records keyed by the
-application attempt ID. It retains request identity, a stable UUID provider
-reference, planned outcome, and readiness time. There is no cross-database
-foreign key: the application communicates with the provider over HTTP. Separate
-databases model ownership, not independent availability.
+The provider owns separate database credentials and migrations on the same
+PostgreSQL instance. Application code only accesses it over HTTP. Separate
+databases model ownership, not independent availability. Use a fresh assignment
+database if the removed learning migration was previously applied. Never rewrite
+committed migrations to introduce later features.
 
-The learning migration was removed at the author's direction; the assignment
-schema is now the initial application migration. Use a fresh assignment database
-if an existing database has already applied the learning migration. The provider
-migration must be applied to its own database.
-At 100x volume, measure query plans and worker backlog first, then revisit
-delivery concurrency, retention, and indexes for observed access patterns.
+At 100x, measure queue age, query plans, and database load. Add bounded worker
+concurrency and atomic claims with expiring leases before running multiple
+instances. Scale API and workers separately if useful, then address retention
+and indexes based on actual access patterns.
 
 ## 2. Invoice State Machine
 
-<!-- Add an ASCII, Mermaid, or image diagram showing every state, valid transition, trigger, and terminal state. -->
-
 ```mermaid
 stateDiagram-v2
-    [*] --> open: Invoice created
-    open --> paid: Provider success confirmed
+    [*] --> open: Create invoice
+    open --> paid: Confirm provider success
     paid --> [*]
 ```
 
-Invoices start `open`; `paid` is terminal. A declined attempt leaves its invoice
-`open`. Attempts move from `pending` to `succeeded` or `failed`. A timeout is not
-a confirmed decline, so an unresolved attempt stays `pending` and blocks a new
-attempt. SQL constrains allowed state values and row consistency; application
-transactions will enforce transitions.
-
-### Reversible Transitions
-
-None. A confirmed failed attempt permits a new attempt on the still-open invoice.
-Drafts, editing, voiding, refunds, and partial payments are outside this version.
-
-### Invalid Transition Rejection
+Invoices start open; paid is terminal. There are no reversible transitions.
+Attempts move pending to succeeded or failed. Confirmed declines leave invoices
+open and permit new attempts. Timeouts stay pending and block fresh attempts.
+Guarded transactions enforce transitions, backed by row constraints. Invalid new
+payment requests return explicit 409 conflicts; no arbitrary state-update API exists.
 
 ## 3. Payment Correctness & Failure Modes
 
-### (a) Simultaneous Payments for the Same Invoice
+### Simultaneous payments and concurrency
 
-<!-- Outcome and mechanism guaranteeing it. -->
+Authenticate and validate, then look for an existing business/key. New work uses a
+READ COMMITTED transaction that locks the tenant's invoice row, repeats the key
+lookup, checks eligibility, and inserts the attempt, exact accepted response, and
+immediate schedule. Commit before returning 202. Never hold the transaction across
+HTTP. Competing requests for the same invoice serialize; the partial unique index
+backs this up. A same-key race across different invoices hits a unique constraint:
+roll back and inspect the winning record.
 
-### (b) PSP Timeout
+Row locks express the resource being protected. An application mutex would not
+coordinate processes; serializable isolation requires broader retry handling.
+The initial deployment has one application instance and two independent sequential
+workers, allowing concurrent HTTP requests without distributed work ownership.
 
-<!-- tok_timeout takes 30 seconds: endpoint response, invoice/payment attempt states, and how the caller learns the eventual result. -->
+### PSP timeout
 
-### (c) Crash After PSP Success Before Persistence
+Acceptance always returns 202 independently of provider latency. The worker uses
+a two-second HTTP timeout and reschedules unresolved attempts five seconds later.
+Lookup comes first; absence permits submission with the same attempt identity.
+Timeouts, transport failures, and malformed responses remain pending. Clients
+query the attempt or receive its eventual webhook. A timer never proves decline.
 
-<!-- Retry behavior, double-charge prevention, and any unresolved limitations. -->
+### Crash after PSP success
 
-### (d) Idempotency Key Reused With a Different Body
+The provider commits request identity, outcome, UUID, and readiness before delay
+or response. Restarted application workers retrieve that operation instead of
+creating another identity. Duplicate submissions compare invoice, amount, and
+token. Stored readiness also survives provider restart or request cancellation.
 
-### (e) Payment Requested for an Already Paid Invoice
+Finalization locks invoice then attempt, checks pending state, and commits attempt
+result, invoice state, and event together. Repeated results are no-ops. The
+network-error token records success but returns 500; lookup resolves the actual
+outcome without another charge. Recovery depends on eventual provider availability.
 
-### Concurrency Mechanism and Alternatives
+### Reused keys and already-paid invoices
 
-<!-- Name the mechanism used and explain why it was chosen over alternatives. Describe idempotency scope and persistence. -->
+Different invoice/token input with the same key returns 409. Matching retries
+return stored 202 body bytes and the same attempt location, even after settlement.
+Check replay before rejecting paid invoices. A new key on a paid invoice returns
+409. Retain keys and attempt history for this version.
 
 ## 4. Webhook Design
 
-### Events and Asynchronous Delivery
+Domain transactions insert invoice.created, invoice.paid, and
+invoice.payment_failed events. A separate worker sends committed events; delivery
+cannot delay API responses or undo payment results. Capture the fixed endpoint at
+creation. Without an endpoint, retain the event unscheduled; registration affects
+future events only.
 
-<!-- invoice.created, invoice.paid, invoice.payment_failed; why and how delivery is decoupled from API responses. -->
+Sign decimal Unix timestamp, a period, and exact body bytes with HMAC-SHA256.
+Headers are Webhook-Timestamp and Webhook-Signature: v1=<hex>. Receivers verify
+before parsing, compare signatures in constant time, allow 300 seconds of clock
+difference, and durably deduplicate the signed event ID together with accepted
+work. Retries preserve ID/body but refresh signatures. Ordering is not guaranteed;
+current invoice/payment state is authoritative.
 
-### Signing and Replay Protection
+Five total attempts use exponential waits of 5, 10, 20, and 40 seconds after the
+initial attempt. Each request times out after five seconds, bounded by a 15-minute
+lifetime from creation including queueing/downtime. Persist dispatch count and
+recovery schedule before HTTP. Crashes cannot reset the budget or allow a sixth
+dispatch. Any 2xx acknowledges; other outcomes retry. Disable redirects. URLs must
+be operator-allowlisted and HTTPS except for the explicitly configured internal demo.
 
-<!-- Algorithm, signed content, verification, and replay protection. -->
-
-### Retry Policy
-
-<!-- Specific intervals, maximum attempts, and total retry budget. -->
-
-### Exhausted Retries and Missed-Event Reconciliation
+Retain exhausted events. Exhaustion means acknowledgment was not confirmed; a
+receiver may have accepted a request whose response was lost. Businesses reconcile
+via invoice reads and attempt history. Event history and manual redelivery APIs
+are omitted. The demo receiver verifies signatures and persists receipt IDs
+before acknowledging, including duplicates.
 
 ## 5. API Key Model
 
-<!-- Generation, storage (plaintext/hash/prefix), transmission, business scoping, rotation, revocation, and blast radius if leaked. -->
+Generate 32 cryptographically random bytes, hex encode, and reveal once. Store
+SHA-256 hash, prefix, and metadata. High-entropy generated keys do not need password
+stretching. Clients send Authorization: Bearer <key> over HTTPS in deployment;
+local Compose uses HTTP. Each request checks revocation and derives business scope
+from the key. A leaked key exposes that business's API capabilities. Revocation
+does not cancel requests already authenticated.
 
-Agreed implementation plan: generate 32 cryptographically random bytes, reveal
-the API key once, and store a SHA-256 hash with display metadata. Clients send
-`Authorization: Bearer <key>`. Authentication will check revocation in the
-database on each request. A leaked key exposes its business's API capabilities;
-tenant-scoped queries limit its reach. Revocation cannot cancel requests already
-authenticated.
+An operator CLI creates businesses and keys, lists metadata, and revokes keys using
+database credentials. Rotate by adding a key, moving clients, and revoking the old
+one. Demo credentials are explicitly for development; bootstrap must not resurrect
+revoked keys. Webhook secrets must remain retrievable, unlike API-key hashes.
 
-A small operator CLI will create businesses, create and list keys, and revoke
-keys using database credentials. Rotation creates a replacement key, allows an
-overlap while clients switch, then revokes the old key. Automatic demo
-bootstrapping remains planned, without a public signup or administrative HTTP API.
+## 6. What We Cut and Why
 
-## 6. What You Cut and Why
+1. Multiple app instances/parallel workers: single-instance deployment avoids job
+   ownership coordination while preserving concurrent HTTP correctness.
+2. Draft/edit/void flows: immutable open-to-paid invoices keep transitions small;
+   refunds and partial payments are explicitly outside the assignment.
+3. Multiple destinations and replay APIs: a fixed endpoint and state reconciliation
+   meet this version's needs.
+4. A queue broker and public administration API: PostgreSQL persists work and the
+   operator CLI handles provisioning.
 
-<!-- List 3 to 5 deliberate omissions with reasons, including at least one thing you wanted to build. -->
-
-1. <!-- Omission and reason. -->
-2. <!-- Omission and reason. -->
-3. <!-- Omission and reason. -->
+Before submission, the author must identify a deferred capability they personally
+wanted to build. That personal reflection must not be invented.
 
 ## 7. Production Readiness Gap
 
-<!-- Top 3 things missing if shipped tomorrow; explain priority. Discuss production rate limiting here. Mention refunds or partial payments if you would add them later. -->
-
-1. <!-- Gap and priority. -->
-2. <!-- Gap and priority. -->
-3. <!-- Gap and priority. -->
+1. Operational visibility: alert on pending payment age, queue backlog, provider
+   failures, and exhausted deliveries; add traceable metrics.
+2. Availability/recovery: exercise backup restoration, remove the shared database
+   failure point, and coordinate workers before horizontal scaling.
+3. Internet deployment: managed TLS/secrets, encryption for retrievable signing
+   keys, and production rate limiting. Broader endpoint registration requires
+   appropriate outbound-network controls.

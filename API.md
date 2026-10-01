@@ -1,111 +1,106 @@
 # API Documentation
 
-Status: this is a design draft. Assignment endpoints are not implemented yet;
-the current implementation work covers database migrations and schema checks.
+Status: agreed contract. Schemas are implemented; endpoint implementation and
+verification will be recorded in subsequent commits.
 
-## Base URL and Conventions
+## Conventions and authentication
 
-<!-- Base URL, content type, IDs, timestamps, USD integer cents, list response conventions, and invoice/payment attempt state values. -->
+Local base URL: http://localhost:3000. JSON bodies, numeric IDs, integer USD cents,
+YYYY-MM-DD dates, UTC RFC 3339 timestamps. Protected routes require
+Authorization: Bearer <key>. Derive business scope from that key; another business's
+resources return 404.
 
-- Monetary fields are integer USD cents: `unit_amount_cents` per item and
-  server-computed `total_cents` per invoice. No floating-point money.
-- Invoice states: `open`, `paid`. Payment attempt states: `pending`, `succeeded`,
-  `failed`.
-- Database IDs use `bigint`; public response shapes, pagination, and timestamp
-  formatting will be finalized with the API contract.
+Lists accept limit (default20, maximum100) and after_id (exclusive ascending ID).
+Return {"data":[],"next_after_id":null}. Lists describe current state, not a change feed.
 
-## Authentication
-
-<!-- API key header format, business scope, and authentication/authorization errors. -->
-
-Planned authentication uses `Authorization: Bearer <key>`. The authenticated key
-determines the business; clients cannot select another business by supplying its
-ID. Revoked keys will fail authentication.
-
-## Consistent Error Format
-
-<!-- Define the JSON error shape and example; document HTTP statuses and error codes. -->
+Errors: {"error":{"code":"invalid_input","message":"..."}}. Statuses:400 invalid
+input,401 invalid/revoked key,404 missing resource,405 wrong method,409 conflict,
+500 unexpected error with generic message. Readiness may return503.
+Public GET /health checks database availability.
 
 ## Customers
 
-### Create Customer
-
-<!-- Method/path, request shape, response shape, status codes, validation, business scope. -->
-
-### Get Customer
-
-<!-- Method/path, parameters, response shape, status codes, business scope. -->
-
-### List Customers
-
-<!-- Method/path, query parameters, response shape, status codes, business scope. -->
+- POST /customers: {"name":"Ada","email":"ada@example.com"}, returning201 with ID
+  and creation timestamp. Require nonempty name/email; reject unknown fields.
+- GET /customers/{id}:200 customer or404.
+- GET /customers: paginated business-scoped list.
 
 ## Invoices
 
-### Create Invoice
+POST /invoices accepts:
 
-<!-- Method/path, customer ID, due date, line items {description, quantity, unit_amount_cents}, server-computed total, response shape, statuses, validation. -->
+```json
+{"customer_id":1,"due_date":"2026-10-31","line_items":[{"description":"Notebook","quantity":2,"unit_amount_cents":1000}]}
+```
 
-Creation will accept a customer, due date, and line items containing
-`description`, `quantity`, and `unit_amount_cents`. The server calculates the
-total and creates an `open` invoice. Invoice financial contents will be immutable.
+Return201 with invoice, computed total_cents, and ordered line items. Require
+nonempty items/descriptions, positive integer quantities, nonnegative integer
+prices, and positive total within i64. Reject client totals, unknown fields,
+and arithmetic overflow. Past due dates are allowed.
 
-### Get Invoice
-
-<!-- Method/path, parameters, response shape, status codes, business scope. -->
-
-### List Invoices
-
-<!-- Method/path, state filter and other supported query parameters, response shape, status codes, business scope. -->
-
-### Invoice State Transition Operations
-
-<!-- Document any implemented transition endpoints: method/path, request/response shapes, valid transitions, and invalid-transition errors. -->
+GET /invoices/{id} returns the invoice with line items. GET /invoices lists
+invoices, optionally filtered by state=open|paid. Financial contents are immutable;
+creation starts open and only confirmed success moves to terminal paid.
 
 ## Payments
 
-### POST /invoices/{id}/pay
+POST /invoices/{id}/pay accepts {"card_token":"tok_success"} and a nonempty
+Idempotency-Key header. Accepted requests return202:
 
-<!-- Path parameter, mock card token request shape, required Idempotency-Key header, response shapes and statuses for success/failure/pending, and business scope. -->
+```json
+{"payment_attempt_id":42,"invoice_id":1,"status":"pending"}
+```
 
-Agreed behavior: after durably accepting a payment attempt, return HTTP `202` and
-process it asynchronously. `Idempotency-Key` is required. Validation,
-authentication, and conflicting requests can still fail before acceptance. The
-exact response body and status lookup endpoint remain to be specified.
+Location points to /payment-attempts/42. Matching business/key/invoice/token retries
+replay original status/body bytes even after settlement. Changed input returns409.
+New attempts conflict with a pending attempt or paid invoice. Confirmed failure
+permits a new key/attempt. Retain idempotency records.
 
-### Idempotency and Concurrent Requests
+GET /payment-attempts/{id} returns current pending|succeeded|failed state, invoice,
+timestamps, provider reference or failure code. GET /invoices/{id}/payment-attempts
+lists attempt history. Never expose stored card tokens.
 
-<!-- Key scope, retention, replay behavior, different-body conflicts, concurrent payments, already paid invoices. -->
-
-Keys are scoped to a business. A matching retry must replay the original accepted
-response even if the attempt has since completed; a reused key with a different
-invoice or token is a conflict. Check for an existing matching request before
-rejecting payment of an already-paid invoice. The schema stores request identity
-and the original response, and prevents multiple pending/successful attempts for
-one invoice. Handler and worker behavior remain to be implemented and tested.
-
-### Timeouts, Network Errors, and Eventual Results
-
-<!-- Returned status/body, resulting states, and how callers obtain eventual results. Document any supporting endpoints with request/response shapes. -->
+Timeouts or HTTP errors leave attempts pending while recovery checks actual
+provider state. Repeating acceptance does not create another payment; query the
+attempt or receive webhooks for completion. Unsupported tokens return400.
 
 ## Webhooks
 
-### Register Endpoint
+POST /webhook-endpoints accepts {"url":"https://approved.example/webhook"},
+returning201 with endpoint identity and signing secret. A second registration
+returns409. URLs must match the operator allowlist and use HTTPS except for the
+explicit internal demo URL. No URL/secret update endpoint.
 
-<!-- Method/path, URL and other request fields, response shape, statuses, secret provisioning, business scope. -->
+Event types: invoice.created, invoice.paid, invoice.payment_failed. Payload contains
+stable event ID, creation timestamp, and invoice/payment information; exact fields
+will be documented against the implementation.
 
-### Event Payloads
+Webhook-Timestamp contains Unix seconds. Webhook-Signature contains v1=<hex>.
+Sign timestamp ASCII + "." + exact body bytes using HMAC-SHA256. Verify before
+JSON decoding, allow ±300 seconds, durably deduplicate event ID together with
+accepted work, and acknowledge with2xx. Retry ID/body remains unchanged while
+timestamp/signature refresh. Ordering is not guaranteed.
 
-<!-- Shapes and examples for invoice.created, invoice.paid, and invoice.payment_failed. -->
-
-### Signature Verification and Replay Protection
-
-<!-- Headers, algorithm, exact signed bytes, receiver verification, and replay checks. -->
-
-### Delivery and Retries
-
-<!-- Asynchronous delivery, acknowledgment expectations, backoff intervals, attempt limit, exhausted retries, and reconciliation. -->
+Five total attempts: immediate then exponential delays5/10/20/40 seconds after
+failure. Timeout5 seconds; absolute lifetime15 minutes from event creation.
+Non-2xx and transport failures retry; redirects disabled. Exhausted events stay
+stored. Reconcile through invoice and attempt APIs. No event-history/manual-replay
+API; endpoint registration does not deliver earlier events.
 
 ## Mock PSP
 
-<!-- Base URL, method/path, request/response shapes, and implemented behavior for tok_success, tok_insufficient_funds, tok_card_declined, tok_timeout, tok_network_error, and unknown tokens. -->
+Internal POST /payments requires Idempotency-Key:<application attempt ID> and
+{"invoice_id":1,"amount_cents":2000,"card_token":"tok_success"}.
+GET /payments/{attempt_id} returns pending/final result or404 if unknown.
+Repeated submissions must match invoice, amount, and token.
+
+| Token | Submission behavior |
+| --- | --- |
+| tok_success | Success after about100ms, stable UUID psp_ref. |
+| tok_insufficient_funds | Failure after about100ms, code insufficient_funds. |
+| tok_card_declined | Failure after about100ms, code card_declined. |
+| tok_timeout | Success after30 seconds; lookup exposes progress/result. |
+| tok_network_error | Persist success but return500; lookup reveals success. |
+
+Unknown tokens return400. Persistence precedes delayed responses and survives
+client cancellation/provider restart. Public GET /health checks provider DB.
