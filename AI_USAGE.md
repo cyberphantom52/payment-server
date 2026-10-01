@@ -59,38 +59,49 @@ revocation across full stack recreation. Docker Engine itself was unavailable.
 
 ## Three Decisions I Made Independently or Against AI Suggestions
 
-### Decision 1
-
-After reviewing the assignment, Codex recommended limiting business setup to
-bootstrapping and documented database administration. I chose to retain a small
-administration CLI because I wanted API-key generation, rotation, and revocation
-demonstrated by working behavior, rather than only described in the design.
-
-### Decision 2
+### Decision 1: An always-asynchronous payment API
 
 I selected an always-asynchronous payment API after discussing it with Codex.
 My reason was that a hybrid synchronous/asynchronous contract creates two result
-paths for both the service and its caller. Accepted requests return `202`;
-status lookup and webhooks expose the eventual result. This was a discussed
-choice, not a rejection of an AI recommendation.
+paths for both the service and its caller. Every durably accepted request returns
+`202`; a background worker handles the provider interaction, and status lookup
+and webhooks expose the eventual result. The tradeoff is that even fast payments
+require the caller to observe completion separately. I preferred that consistent
+contract across normal responses, slow providers, and recovery. This choice was
+made through discussion with Codex.
 
-### Decision 3
+### Decision 2: Defer horizontal scaling and use one application instance
 
-Codex proposed hand-picked retry intervals of 5, 30, 120, and 600 seconds. I asked
-for a standard backoff policy instead. We chose exponential waits of 5, 10, 20,
-and 40 seconds. I preferred a recognized policy to a hand-picked sequence.
+During planning, I pointed out that the proposed worker design would prevent us
+from safely scaling the application across multiple instances. I wanted
+horizontal scaling, but accepted one application instance with separate sequential
+payment and webhook workers to keep the assignment manageable and focus on
+payment correctness. Concurrent HTTP requests are still supported; background
+throughput and application availability are limited by that single instance.
+I asked that we explicitly document this tradeoff and the changes needed at
+100x scale: durable work claims with expiring leases, bounded worker concurrency,
+and then multiple instances.
 
-Separately, I challenged the network-error mock recommendation and asked Codex to
-reason from client expectations and idempotency. We chose stored provider success
-with an HTTP 500 response, then recovery by lookup. Codex recommended durable
-provider idempotency from the outset; I did not introduce it against a contrary
-recommendation.
+### Decision 3: Resolve uncertain provider outcomes before allowing another payment
+
+I challenged the network-error mock recommendation and asked Codex to reason
+from client expectations and idempotency. We chose to model a payment succeeding
+at the provider while its submission response returns HTTP `500`. The application
+keeps the attempt pending and resolves it through provider lookup using the same
+durable attempt identity. An unresolved attempt blocks a fresh payment; only a
+confirmed decline permits another attempt.
+
+My concern was that a communication failure does not establish whether money
+moved. Allowing a new payment immediately could charge the customer twice. The
+tradeoff is that an invoice can remain blocked while the provider is unavailable.
+Codex had already recommended durable provider idempotency; my contribution was
+challenging the failure semantics and choosing this recovery behavior with Codex.
 
 ## Something AI Got Wrong and How I Corrected It
 
-The webhook retry recommendation in Decision 3 is a concrete example. Codex
-proposed the custom sequence 5, 30, 120, and 600 seconds. I pushed back and asked
-for a standard backoff policy, such as exponential or linear backoff. We changed
+The webhook retry recommendation is a concrete example. Codex proposed the custom
+sequence 5, 30, 120, and 600 seconds. I pushed back and asked for a standard backoff
+policy, such as exponential or linear backoff. We changed
 the design to five total attempts with exponential waits of 5, 10, 20, and 40
 seconds after failures.
 
