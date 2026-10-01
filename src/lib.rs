@@ -1,7 +1,9 @@
 pub mod auth;
 pub mod bootstrap;
+pub mod entities;
 pub mod error;
 pub mod events;
+pub mod models;
 pub mod payments;
 pub mod provider;
 pub mod resources;

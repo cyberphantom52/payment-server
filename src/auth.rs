@@ -1,14 +1,17 @@
-use crate::{AppState, error::AppError};
+use crate::{
+    AppState,
+    entities::{api_key::KeyMetadata, business::Business},
+    error::AppError,
+    models::data::{api_key::IssuedApiKey, business::CreatedBusiness},
+};
 use axum::{
     extract::{FromRequestParts, Request, State},
     http::{header::AUTHORIZATION, request::Parts},
     middleware::Next,
     response::Response,
 };
-use chrono::{DateTime, Utc};
-use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgConnection, PgPool};
+use sqlx::{PgConnection, PgPool};
 use std::fmt::Write;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,34 +58,6 @@ pub async fn require_api_key(
     .ok_or_else(AppError::unauthorized)?;
     request.extensions_mut().insert(BusinessId(business_id));
     Ok(next.run(request).await)
-}
-
-#[derive(Debug, Serialize, FromRow)]
-pub struct Business {
-    pub id: i64,
-    pub name: String,
-}
-
-#[derive(Debug, Serialize, FromRow)]
-pub struct KeyMetadata {
-    pub id: i64,
-    pub business_id: i64,
-    pub display_prefix: String,
-    pub created_at: DateTime<Utc>,
-    pub revoked_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct IssuedApiKey {
-    #[serde(flatten)]
-    pub metadata: KeyMetadata,
-    pub key: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CreatedBusiness {
-    pub business: Business,
-    pub api_key: IssuedApiKey,
 }
 
 pub async fn create_business(db: &PgPool, name: &str) -> Result<CreatedBusiness, AppError> {

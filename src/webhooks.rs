@@ -1,7 +1,9 @@
 use crate::{
     AppState,
     auth::{BusinessId, hex},
+    entities::webhook_delivery::Delivery,
     error::{ApiJson, AppError},
+    models::{data::webhook_event::Event, forms::webhook_endpoint::EndpointRequest},
 };
 use axum::{
     Extension, Json, Router,
@@ -10,10 +12,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::post,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::{Client, Url};
-use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::Sha256;
 use sqlx::PgPool;
@@ -78,12 +79,6 @@ pub fn routes(config: WebhookConfig) -> Router<AppState> {
     Router::new()
         .route("/webhook-endpoints", post(register))
         .layer(Extension(config))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EndpointRequest {
-    url: String,
 }
 
 async fn register(
@@ -182,16 +177,6 @@ pub fn demo_router(db: PgPool, secret: Option<&str>) -> Result<Router, AppError>
         }))
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Event {
-    id: i64,
-    #[serde(rename = "type")]
-    event_type: String,
-    created_at: DateTime<Utc>,
-    data: Value,
-}
-
 fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, AppError> {
     let mut values = headers.get_all(name).iter();
     let value = values
@@ -279,16 +264,6 @@ pub async fn run(db: PgPool, client: Client) -> Result<(), AppError> {
 
 fn retry_delay(attempt: i64) -> i64 {
     5 * (1_i64 << (attempt - 1))
-}
-
-#[derive(sqlx::FromRow)]
-struct Delivery {
-    id: i64,
-    payload: String,
-    url: String,
-    signing_secret: String,
-    attempt_count: i64,
-    remaining_ms: i64,
 }
 
 /// Run from one sequential worker. Errors must return to its backoff loop.

@@ -1,6 +1,9 @@
-use crate::error::{ApiJson, ApiPath, AppError};
+use crate::{
+    entities::provider_operation::Operation,
+    error::{ApiJson, ApiPath, AppError},
+    models::forms::provider_payment::PaymentRequest,
+};
 use axum::{Json, Router, extract::State, http::HeaderMap, routing::get};
-use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::time::Duration;
@@ -13,25 +16,6 @@ pub fn router(db: PgPool) -> Router {
         .fallback(|| async { AppError::not_found() })
         .method_not_allowed_fallback(|| async { AppError::method_not_allowed() })
         .with_state(db)
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PaymentRequest {
-    invoice_id: i64,
-    amount_cents: i64,
-    card_token: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct Operation {
-    attempt_id: i64,
-    invoice_id: i64,
-    amount_cents: i64,
-    mock_card_token: String,
-    psp_ref: String,
-    planned_outcome: String,
-    ready_in_ms: i64,
 }
 
 impl Operation {

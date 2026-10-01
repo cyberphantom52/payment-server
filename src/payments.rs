@@ -1,9 +1,17 @@
 use crate::{
     AppState,
     auth::BusinessId,
+    entities::payment_attempt::{Attempt, Replay, Work},
     error::{ApiJson, ApiPath, ApiQuery, AppError},
     events::insert_event,
-    resources::{ListQuery, Page, page},
+    models::{
+        data::{
+            page::{Page, page},
+            provider_payment::ProviderResult,
+        },
+        enums::failure_code::FailureCode,
+        forms::{list::ListQuery, payment::PaymentInput},
+    },
 };
 use axum::{
     Json, Router,
@@ -12,33 +20,16 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use chrono::{DateTime, Utc};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{FromRow, PgConnection, PgPool};
+use sqlx::{PgConnection, PgPool};
 use std::time::Duration;
-use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/invoices/{id}/pay", post(pay))
         .route("/payment-attempts/{id}", get(get_attempt))
         .route("/invoices/{id}/payment-attempts", get(list_attempts))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PaymentInput {
-    card_token: String,
-}
-
-#[derive(FromRow)]
-struct Replay {
-    id: i64,
-    invoice_id: i64,
-    mock_card_token: String,
-    accepted_response_body: String,
 }
 
 impl Replay {
@@ -165,19 +156,6 @@ async fn pay(
     .response(invoice_id, &input.card_token)
 }
 
-#[derive(Serialize, FromRow)]
-struct Attempt {
-    id: i64,
-    business_id: i64,
-    invoice_id: i64,
-    #[serde(rename = "status")]
-    state: String,
-    psp_ref: Option<String>,
-    failure_code: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
 async fn get_attempt(
     State(state): State<AppState>,
     BusinessId(business_id): BusinessId,
@@ -209,43 +187,6 @@ async fn list_attempts(
         FROM payment_attempts WHERE business_id = $1 AND invoice_id = $2 AND id > $3 ORDER BY id LIMIT $4")
         .bind(business_id).bind(invoice_id).bind(after_id).bind(limit + 1).fetch_all(&state.db).await?;
     Ok(Json(page(attempts, limit, |attempt: &Attempt| attempt.id)))
-}
-
-#[derive(FromRow)]
-struct Work {
-    id: i64,
-    business_id: i64,
-    invoice_id: i64,
-    mock_card_token: String,
-    total_cents: i64,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "status", deny_unknown_fields)]
-enum ProviderResult {
-    #[serde(rename = "pending")]
-    Pending { attempt_id: i64 },
-    #[serde(rename = "succeeded")]
-    Succeeded { attempt_id: i64, psp_ref: Uuid },
-    #[serde(rename = "failed")]
-    Failed { attempt_id: i64, code: FailureCode },
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum FailureCode {
-    CardDeclined,
-    InsufficientFunds,
-}
-
-impl ProviderResult {
-    fn attempt_id(&self) -> i64 {
-        match self {
-            Self::Pending { attempt_id }
-            | Self::Succeeded { attempt_id, .. }
-            | Self::Failed { attempt_id, .. } => *attempt_id,
-        }
-    }
 }
 
 pub struct Worker {

@@ -1,10 +1,11 @@
+use crate::models::data::error::{Envelope, ErrorBody};
 use axum::{
     Json,
     extract::{FromRequest, FromRequestParts, Path, Query, Request},
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use std::fmt::Display;
 
 #[derive(Debug)]
@@ -91,15 +92,6 @@ impl From<sqlx::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        #[derive(Serialize)]
-        struct ErrorBody {
-            code: &'static str,
-            message: String,
-        }
-        #[derive(Serialize)]
-        struct Envelope {
-            error: ErrorBody,
-        }
         (
             self.status,
             Json(Envelope {

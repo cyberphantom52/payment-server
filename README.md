@@ -194,6 +194,11 @@ DATABASE_URL=postgresql://localhost/payment_app cargo run -- admin create-busine
 Startup applies SQLx migrations automatically. Each binary runs only the
 migrations for its own database.
 
+SQL row types and worker query projections live in `src/entities`. JSON request
+types live in `src/models/forms`; response envelopes and composite responses live
+in `src/models/data`. Entities are returned directly when their fields match the
+response. Shared protocol enums live in `src/models/enums`.
+
 | Variable | Native behavior / Compose setting |
 | --- | --- |
 | `DATABASE_URL` | Required for each binary; separate databases and roles in Compose. |

@@ -1,14 +1,20 @@
 use crate::{
     AppState,
     auth::BusinessId,
+    entities::{customer::Customer, invoice::InvoiceSummary, invoice_line_item::LineItem},
     error::{ApiJson, ApiPath, ApiQuery, AppError},
     events::insert_event,
+    models::{
+        data::{
+            invoice::Invoice,
+            page::{Page, page},
+        },
+        forms::{customer::NewCustomer, invoice::NewInvoice, list::ListQuery},
+    },
 };
 use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
-use chrono::{DateTime, NaiveDate, Utc};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{FromRow, PgConnection};
+use sqlx::PgConnection;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -16,22 +22,6 @@ pub fn router() -> Router<AppState> {
         .route("/customers/{id}", get(get_customer))
         .route("/invoices", get(list_invoices).post(create_invoice))
         .route("/invoices/{id}", get(get_invoice))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NewCustomer {
-    name: String,
-    email: String,
-}
-
-#[derive(Serialize, FromRow)]
-struct Customer {
-    id: i64,
-    business_id: i64,
-    name: String,
-    email: String,
-    created_at: DateTime<Utc>,
 }
 
 async fn create_customer(
@@ -60,46 +50,6 @@ async fn get_customer(
         .bind(business_id).bind(id).fetch_one(&state.db).await?))
 }
 
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ListQuery {
-    pub(crate) limit: Option<i64>,
-    pub(crate) after_id: Option<i64>,
-    pub(crate) state: Option<String>,
-}
-
-impl ListQuery {
-    pub(crate) fn pagination(&self) -> Result<(i64, i64), AppError> {
-        let limit = self.limit.unwrap_or(20);
-        let after_id = self.after_id.unwrap_or(0);
-        if !(1..=100).contains(&limit) || after_id < 0 {
-            return Err(AppError::invalid_input(
-                "limit must be 1..100 and after_id must be nonnegative",
-            ));
-        }
-        Ok((limit, after_id))
-    }
-}
-
-#[derive(Serialize)]
-pub(crate) struct Page<T> {
-    data: Vec<T>,
-    next_after_id: Option<i64>,
-}
-
-pub(crate) fn page<T>(mut data: Vec<T>, limit: i64, id: impl Fn(&T) -> i64) -> Page<T> {
-    let next_after_id = if data.len() > limit as usize {
-        data.pop();
-        data.last().map(id)
-    } else {
-        None
-    };
-    Page {
-        data,
-        next_after_id,
-    }
-}
-
 async fn list_customers(
     State(state): State<AppState>,
     BusinessId(business_id): BusinessId,
@@ -123,41 +73,6 @@ async fn list_customers(
     Ok(Json(page(customers, limit, |customer: &Customer| {
         customer.id
     })))
-}
-
-#[derive(Deserialize, Serialize, FromRow)]
-#[serde(deny_unknown_fields)]
-struct LineItem {
-    description: String,
-    quantity: i64,
-    unit_amount_cents: i64,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NewInvoice {
-    customer_id: i64,
-    due_date: NaiveDate,
-    line_items: Vec<LineItem>,
-}
-
-#[derive(Serialize, FromRow)]
-struct InvoiceSummary {
-    id: i64,
-    business_id: i64,
-    customer_id: i64,
-    due_date: NaiveDate,
-    total_cents: i64,
-    state: String,
-    created_at: DateTime<Utc>,
-    paid_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Serialize)]
-struct Invoice {
-    #[serde(flatten)]
-    summary: InvoiceSummary,
-    line_items: Vec<LineItem>,
 }
 
 async fn create_invoice(
