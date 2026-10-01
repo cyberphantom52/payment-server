@@ -1,7 +1,8 @@
 # API Documentation
 
-Status: agreed contract. Schemas are implemented; endpoint implementation and
-verification will be recorded in subsequent commits.
+Status: schemas, API-key authentication/administration, JSON error handling, and
+application health are implemented. The domain and provider endpoints below are
+the agreed contract and will be verified in subsequent commits.
 
 ## Conventions and authentication
 

@@ -15,6 +15,11 @@ remaining implementation. The main agent reviews, validates, and commits their
 work in the agreed sequence. At this documentation checkpoint those features are
 being implemented and are not yet verified.
 
+The first high-reasoning implementation stage added key administration,
+authentication, shared JSON errors, and readiness checks. Review corrected the
+CLI to preserve the agreed `admin` command prefix. Its parser and authentication
+tests passed before the feature commit.
+
 The schema review removed unnecessary copies of webhook destination URLs and
 secrets from event rows: the agreed fixed endpoint can be referenced directly.
 Validation applied both migration sets to isolated PostgreSQL test databases and

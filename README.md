@@ -3,9 +3,9 @@
 <!-- Fill in a brief project description. -->
 
 A Rust invoice and payment service using Axum and PostgreSQL, with a separate
-mock payment provider. This repository is under construction: the current step
-implements the database model; the API, payment processing, webhook delivery,
-administration CLI, and Compose setup still need implementation.
+mock payment provider. The database model, API-key administration/authentication,
+and health endpoint are implemented. Domain APIs, processing workers, and Compose
+setup are being built in the sequence below.
 
 ## Run Instructions
 
@@ -17,6 +17,24 @@ tests and documentation updates. No commits are pushed automatically.
 The target command is `docker compose up`; Compose files are not implemented at
 this checkpoint. Validation currently uses disposable PostgreSQL. Podman is
 installed on the development host, but its Compose provider still needs setup.
+
+For the implemented native development foundation, use a fresh application
+database and provide its URL (the database must already exist):
+
+```sh
+export DATABASE_URL=postgresql://localhost/payment_app
+cargo run -- admin create-business "Example Business"
+cargo run -- admin create-key 1
+cargo run -- admin list-keys 1
+cargo run -- admin revoke-key 2
+cargo run
+```
+
+Creation commands reveal the new key once; listing returns metadata only. Rotate
+by creating a replacement, updating the client, and revoking the old key. IDs in
+these examples must be replaced with the returned IDs. `GET /health` returns
+`200 {"status":"ok"}` while the database is reachable, otherwise JSON `503`.
+`BIND_ADDR` defaults to `127.0.0.1:3000` for native development.
 
 <!-- Prerequisites, docker compose up, service URLs, and how to obtain a business API key. Setup must require no manual steps. -->
 
@@ -61,9 +79,15 @@ destination constraints, and provider records. The required HTTP concurrency,
 response replay, and timeout/recovery tests below remain pending until the
 corresponding behavior is implemented.
 
-Verified: all three schema tests passed against a disposable local PostgreSQL
-instance. `cargo check --tests` and `cargo fmt --check` also passed. The current
-application has an unused `AppState.db` warning until handlers use the pool.
+Verified: all three schema tests, two authentication tests, and the admin CLI
+parser test passed against disposable PostgreSQL where needed. Authentication
+checks include overlapping key rotation, revocation, business identity, malformed
+credentials, JSON errors, and transactional business/key creation. Formatting
+and compilation checks passed. Run the foundation checks with:
+
+```sh
+DATABASE_URL=postgresql://localhost/postgres cargo test --test auth --bin payment-server
+```
 
 ### Concurrent Payments
 
